@@ -1,0 +1,26 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1583834900293.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "194967076",
+    "id" : "B4B981B7",
+    "lastKnownWriteTime" : 1583835220,
+    "last_content_update" : 1583835220691,
+    "path" : "~/Ophiocoma_psychometric/Ophiocoma_psychometric.Rmd",
+    "project_path" : "Ophiocoma_psychometric.Rmd",
+    "properties" : {
+        "cursorPosition" : "368,38",
+        "last_setup_crc32" : "41405752bb338d19",
+        "scrollLine" : "351"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 1,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_markdown"
+}

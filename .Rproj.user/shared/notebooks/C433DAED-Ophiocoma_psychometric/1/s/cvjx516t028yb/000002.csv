@@ -1,0 +1,8 @@
+"0","make_stancode(formula = model.formula, data = df, family = bernoulli(""identity""),"
+"0","              prior = model.priors)"
+"2","Error: The following priors do not correspond to any model parameter: 
+sd_lapse ~ student_t(3, 0, 0.25)
+sd_threshold ~ student_t(3, 0, 0.25)
+sd_width ~ student_t(3, 0, 0.25)
+Function 'get_prior' might be helpful to you.
+"

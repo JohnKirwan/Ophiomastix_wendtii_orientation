@@ -1,0 +1,7 @@
+"0","df %>% mutate(success = 0) -> df"
+"0","#for(i in 1:length(df$Absolute_heading_radians)){df$success[i] <- NA}"
+"0","for(i in 1:length(df$Relative_heading_radians)){           ### get tote of each using one fifth of the circle"
+"0","  if(is.na(df$heading[i]) == TRUE){df$success[i] <- 0}"
+"0","  else if(df$heading[i] >   0.524) {df$success[i] <- 0}    ## pi/5 beforehand"
+"0","  else if(df$heading[i] <= -0.524 ){df$success[i] <- 0}  ## -pi/5 beforehand"
+"0","  else{df$success[i] <- 1}  }"

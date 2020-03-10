@@ -1,0 +1,625 @@
+---
+title: "Millipede Resolution"
+author: "John Kirwan"
+date: '2019-08-17'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load necessary packages. 
+
+```{r Load packages, message=FALSE, warning=TRUE}
+options(mc.cores = parallel::detectCores())  # run all cores
+Sys.setenv(LOCAL_CPPFLAGS = '-march=native') # for faster Stan execution 
+library('magrittr')
+library('readr')
+library('dplyr')
+library('reshape2')
+library('tibble')
+library('CircStats')
+library('circular')
+library('ggplot2')
+library('rstan') 
+rstan_options(auto_write = TRUE)
+library('brms')
+```
+
+Load the data. The column stimulus_period refers to the period (intensity) of the stimulus at each observation; radian and degree are the headings taken by the animal from the centre in radians and degrees respectively. Batch refers to animals collected and tested in either 2018 or 2019.
+
+```{r Load data}
+# df <- read_delim('Threshold_size.txt', delim = '\t')
+df <- read_delim('Threshold_size.txt', delim = '\t')
+#added the following from other rmd
+df$heading <- as.numeric(df$Relative_heading_degrees)*pi/180
+df$heading[df$heading > pi] <- -pi +(df$heading[df$heading > pi] -pi)
+df$heading_deg <- as.numeric(df$Relative_heading_degrees)
+df$heading_deg[df$heading_deg > 180] <- -180 +(df$heading_deg[df$heading_deg > 180] -180)
+df$Type    <- as.numeric(df$Type)
+df$Typefactor <- as.factor(df$Type)
+#remove the non-adjusted headings in degrees, we don't need them
+df <- subset.data.frame(df, select = -c(Absolute_heading_degrees,Relative_heading_degrees))
+#this one is JK's, to include individual identity:
+#df %>% 
+ # mutate(batch = if_else(individual <= 100, '2018', '2019')) -> df
+```
+
+We represent the stimulus period and target half width angles in radians rather than degrees because the smaller (but still positive) values for the model predictor are preferable.  
+
+```{r}
+df$Type <- pi * df$Type / 180
+```
+
+## Discretization
+Here, we define the sector of the circle which we consider to be the 'target' region.
+
+```{r message=FALSE}
+df %>% mutate(success = 0) -> df
+#for(i in 1:length(df$Absolute_heading_radians)){df$success[i] <- NA}
+for(i in 1:length(df$Relative_heading_radians)){           ### get tote of each using one fifth of the circle
+  if(is.na(df$heading[i]) == TRUE){df$success[i] <- 0}
+  else if(df$heading[i] >   0.524) {df$success[i] <- 0}    ## pi/5 beforehand
+  else if(df$heading[i] <= -0.524 ){df$success[i] <- 0}  ## -pi/5 beforehand
+  else{df$success[i] <- 1}  }
+```
+
+
+Below, we make circular plots of the vectors for each of the treatments. Code borrowed and modified from James J. Foster, Lund Vision Group, Sweden (https://www.biology.lu.se/james-foster).
+
+```{r Circular plots, message=FALSE}
+Type <- levels(as.factor(df$Type)); Type.prop <- vector()
+par(mfrow = c(2,ceiling(length(Type)/2)));  
+par(mar = c(0.5, 0.5, 0.5, 0.5) + 0.1) # bottom, left, top, right
+j = 1;
+
+mycirc <- function(angles, clock){
+	if(missing(clock)){clock <- T}
+	if(clock){
+	return(
+	as.circular(angles,
+		units = 'degrees', 
+		type = 'angles', #don't set this to directions, apparently very different 
+		modulo = '2pi', 
+		zero = pi/2, 
+		rotation = 'clock', 
+		template = 'none')
+		)
+		}else{
+		as.circular(angles,
+		units = 'degrees', 
+		type = 'angles', #don't set this to directions, apparently very different 
+		modulo = '2pi', 
+		zero = pi/2, 
+		rotation = 'counter', 
+		template = 'none')
+		}#if(clock)
+}
+
+CircCI <- function(mn, lci, uci, out, zro, drc, lng, ...){
+	if(missing(lng)){lng <- 10*360/5} #bins #narrow them or they don't align with the actual angles!
+	if(missing(drc)){drc <- 'clock'}
+	if(missing(zro)){zro <- pi/2} 
+	#pi/2=start at screen top, pi=start at screen left, 3*pi/2=start at screen bottom, 0=start at sceen right
+	if(missing(out)){out <- 0.05}
+	if(missing(uci)){uci <- lci}
+	lwr <- mn - lci
+	upr <- mn + uci
+	# if(lwr > 360){lwr <- lwr - 360}else{
+		# if(lwr <0 ){lwr <- 360 - lwr}#if(lwr <0 )
+	# }#if(lwr > 360)
+	# if(upr > 360){upr <- upr - 360}else{
+		# if(upr <0 ){upr <- 360 - upr}#if(upr <0 )
+	# }#if(upr > 360)
+	# print(paste('lower',lwr))
+	# print(paste('upper',upr))
+	circ.pos <- ( ((drc == 'clock')-1)*2 +1) * -seq( pi*lwr/180, pi*upr/180, length.out = lng) + zro
+	circ.x <- cos(circ.pos)*(1+out)
+	circ.y <- sin(circ.pos)*(1+out)
+	lines(circ.x, circ.y, ...)
+	lines.circular( as.circular(rep(lwr,2),units = 'degrees', type = 'angles', modulo = '2pi', zero = zro, rotation = drc, template = 'none'), 
+	out*c(0.5, 1.5), modulo = '2pi', zero = zro, rotation = drc, ...)
+	lines.circular(as.circular(rep(upr,2),units = 'degrees', type = 'angles', modulo = '2pi', zero = zro, rotation = drc, template = 'none'),
+ 	out*c(0.5, 1.5), modulo = '2pi', zero = zro, rotation = drc, ...)
+}
+
+
+Cplot <- function(headings, sp, bt, ax, ...){
+	if(missing(ax)){ax <- F} #fit mean axis, fits mean direction unless otherwise specified
+	#spacing of stacked points, now automatically stacks towards centre unless otherwise specified
+	if(missing(sp) & missing(bt)){sp <- 0.04}
+	#bt specifies the stacking by a multipicative factor, 1 = stacked, 2 = 1 point's space between, 0.5 = half overlapping
+	if( missing(sp) & !(missing(bt)) ){sp <- bt*2}
+	#	Get functions and packages
+	if(sum(rownames(installed.packages()) %in% c('CircStats', 'circular'), na.rm = T)<2){
+		install.packages(c('CircStats', 'circular'))	}
+	if(!(	sum('CircCI'%in% ls())	)){
+		CircCI <- function(mn, lci, uci, out, zro, drc, lng, ...){
+			if(missing(lng)){lng<-10*360/5};	if(missing(drc)){drc<-'clock'}
+			if(missing(zro)){zro <- pi/2};if(missing(out)){out <- 0.05}
+			if(missing(uci)){uci <- lci}
+			lwr <- mn - lci;	upr <- mn + uci
+			circ.pos <- ( ((drc == 'clock')-1)*2 +1) * 
+				-seq( pi*lwr/180, pi*upr/180, length.out = lng) + zro
+			circ.x <- cos(circ.pos)*(1+out);	circ.y <- sin(circ.pos)*(1+out)
+			lines(circ.x, circ.y, ...)
+			lines.circular( as.circular(rep(lwr,2),units = 'degrees', 
+				type = 'angles', modulo = '2pi', zero = zro, 
+				rotation = drc, template = 'none'), 
+				out*c(0.5, 1.5), modulo = '2pi', 
+				zero = zro, rotation = drc, ...)
+			lines.circular(as.circular(rep(upr,2),units = 'degrees', 
+				type = 'angles', modulo = '2pi', zero = zro, 
+				rotation = drc, template = 'none'),
+			 	out*c(0.5, 1.5), modulo = '2pi', zero = zro, 
+			 	rotation = drc, ...) 		}	}
+	if(!(	sum('mycirc'%in% ls())	)){
+		mycirc <- function(angles, clock){
+			if(missing(clock)){clock <- T}
+			if(clock){
+			return(		as.circular(angles,units='degrees',type='angles',
+			modulo='2pi',zero=pi/2,rotation='clock',	template='none')	)
+				}else{
+				as.circular(angles,units='degrees',type='angles',
+				 modulo='2pi',zero=pi/2,rotation='counter',template='none')
+				}	}	}
+	#circular plot settings
+	increments <- 5 #degrees
+	zr <- pi/2 #start at top of screen (pi*	90	/180)
+	bn <-  72  #10*10*360/5 #bins 	
+	degrad <- 180/pi #conversion from radians to degrees
+	tcl <- rgb(1,1,1,0)#transparent colour
+	pcl <- rgb(.3,.1,.1,.5)#point colour
+	#plot characters
+	lw <- 0.5 #line width
+	pnt <- 3 # 2.5 #point size
+	arw <- 10 #arrowhead angle
+	arl <- 0 #0.1 #arrowhead length
+	#	set up input variables
+	hd <- mycirc(headings)
+	sm <- summary(hd)
+	sv <- degrad*sd.circular(hd, na.rm=T)
+	lbl <- 0 # 90*(1:4-1)
+	plot(hd, col=tcl, main="", zero=zr, axes=F, shrink=1,tol=0.075)
+	axis.circular(1, at = mycirc(lbl), labels = lbl)
+	par(new=T)
+	plot.circular(hd, col=tcl,main="",zero=zr,axes=F,shrink=1.05,tol=0.075)
+	points(hd,stack=T,bin=bn,sep=-sp,zero=zr,...)
+	if(!(ax)){
+		arrows.circular( mycirc(sm['Mean']),zero=zr,col='red4',lwd=3,
+		 length=arl,angle=arw,shrink = sm['Rho'])
+		 CircCI(sm['Mean'], sv, out = 0.15, zro=zr, drc='clock',col='red4',lwd=1)	}else{
+		 sm2 <- summary(mycirc(hd*2))
+		 sv2 <- degrad*sd.circular(hd*2, na.rm=T)/2
+		 arrows.circular( mycirc(sm2['Mean']/2),zero=zr,col='red4',lwd=3,
+		 length=arl,angle=arw,shrink = sm2['Rho'])
+		 arrows.circular( mycirc(180+sm2['Mean']/2),zero=zr,col='red4',lwd=3,
+		 length=arl,angle=arw,shrink = sm2['Rho'])
+		 CircCI(sm2['Mean']/2, sv2, out = 0.15, zro=zr, drc='clock',col='red4',lwd=1)
+		 CircCI(180+sm2['Mean']/2, sv2, out = 0.15, zro=zr, drc='clock',col='red4',lwd=1)
+	 } }#if(!(ax))
+
+for(i in Type){
+    Cplot(df$heading_deg[df$Type==i],0.06)#,
+         # lci= mle.vonmises.bootstrap.ci(df$degree[df$stimulus_period==i])$mu.ci[1],
+         #  uci= mle.vonmises.bootstrap.ci(df$degree[df$stimulus_period==i])$mu.ci[1] )
+    Type.prop[j] <- sum(df$success[df$Type==i])/length(df$success[df$Type==i])
+    j <- j + 1  }
+```
+
+
+Have a look at what happens with differing stimulus_period width of the target, to get an impression of the response and to see if the result is likely to be robust to changes in the stimulus_period width.
+
+```{r Treatment summary, message=TRUE, warning=FALSE}
+df %>% as_tibble %>%                 # dataframe name
+  mutate(in.quad = ifelse(abs(heading) < pi/4, 1, 0)) %>% # for data in radians -pi to pi
+  mutate(in.pent = ifelse(abs(heading) < pi/5, 1, 0)) %>% # for data in radians -pi to pi
+  mutate(in.sext = ifelse(abs(heading) < pi/6, 1, 0)) %>% # for data in radians -pi to pi
+  mutate(in.oct = ifelse(abs(heading) < pi/8, 1, 0))  %>% # for data in radians -pi to pi
+  group_by(Type) %>%                # condition name
+  summarize(target = round(Type * 180 / pi)[1],
+            n_obs = n(),                   ## observations for treatment
+            #uniq_ind = n_distinct(individual),    ## unique individuals by treatment
+            mu = round(180*mean.circular(heading)/pi,0),
+            lo.ci = round(180*mle.vonmises.bootstrap.ci(heading)$mu.ci[1]/pi),
+            hi.ci = round(180*mle.vonmises.bootstrap.ci(heading)$mu.ci[2]/pi),
+            rho = round(rho.circular(heading),2),
+            kappa = unlist(mle.vonmises(heading)[3]), 
+            v.stat =unlist(rayleigh.test(heading,mu=0)[1]),
+            v.p= unlist(rayleigh.test(heading,mu=0)[2]),
+            rayl.stat=unlist(rayleigh.test(heading)[1]),
+            rayl.p= unlist(rayleigh.test(heading)[2]),
+            c.mean = unlist(mean.circular(heading)[1]),
+            quad.prop = sum(in.quad)/length(in.quad),
+            pent.prop = sum(in.pent)/length(in.pent),
+            sext.prop = sum(in.sext)/length(in.sext),
+            oct.prop = sum(in.oct)/length(in.oct),
+            binom.p6 = unlist(
+                binom.test(sum(in.sext),length(in.sext),
+                p=1/6,alternative = "greater")[3]),
+            binom.p8 = unlist(
+                binom.test(sum(in.oct),length(in.oct),
+                p=1/8,alternative = "greater")[3]),
+            binom.p5 = unlist(
+                binom.test(sum(in.pent),length(in.pent),
+                p=1/5,alternative = "greater")[3])) -> circ_fun_facts
+## output dataframe
+circ_fun_facts
+```
+
+
+```{r ROC curve}
+circ_fun_facts %>% 
+  ggplot(aes(180*Type/pi, sext.prop)) + geom_line(color="pink",size=3)  + ylab("Proportion correct responses") +
+  theme_classic() + xlab("Stimulus period") +  ## data in target quadrant
+  geom_line(aes(y=oct.prop), color="red")   +                            ## data in target octant
+  geom_line(aes(y=quad.prop), color="blue")        +                       ## data in target octant
+   geom_line(data=circ_fun_facts,aes(x=180*Type/pi , y=pent.prop),size=1) + 
+   geom_hline(yintercept = 1/6) +
+   geom_bin2d(data=df,aes(y = success, x = 180*Type/pi)) # counts
+```
+
+
+```{r Prior visualization}
+seq1 <- seq(from=0,to=1, length.out = 500)
+seq3 <- seq(from=-4.5,to=4.5,length.out = 500)
+plot((seq1),dstudent_t((seq1), 3, 0.167,0.05), main="Base")
+plot(plogis(seq3),dnorm(plogis(seq3), 0.1,0.2), main="Lapse") 
+plot(exp(seq1),dnorm(exp(seq1), 1,1),main="Threshold and width")
+plot(plogis(seq3),dstudent_t(plogis(seq3), 3, 0,0.25),main="Random intercepts of psychometric")
+plot(seq1,dstudent_t(seq1, 3, 0,0.25),main="Random intercepts of lapse")
+```
+
+
+# Try with new formulation
+
+We tried a fair few versions of the model. We settled on this version because it includes both upper and lower asymptotes and was able to converge. 4.39 approximates 2 x ln(1 - 1 / alpha), which scales the width parameter. Here alpha = 0.1, 10%, which scales width so that threshold ± width/2 includes the x axis region in which the curve rises from 10% of its maximum height above guess rate to 90% of its maximum height above guess rate. 
+
+The following non-default priors were given to brms. An informative prior was used for the lower asymptote (base) as this value should not differ much from 0.2. Upper and lower bounds were used for the aysmptotes to prevent overlap, which would make the model unidentifiable.  
+
+This is the (exponentiated) prior applied to width of the psychometric curve between 10% and 90% of its maximum height and the model threshold.
+
+```{r Width prior}
+seq1 <- seq(from=0,to=1.5, length.out = 500)
+plot(exp(seq1),dnorm(exp(seq1), 1,1),main="Threshold and width")
+```
+
+
+```{r}
+seq1 <- seq(from=0,to=2,length.out = 500)
+plot(seq1,dstudent_t(seq1,3,0,0.5),xlab="S.D. on individual variation of curve Width")
+```
+
+
+```{r Model formula, message=FALSE}
+model.formula <- bf(success ~ 
+                      base + 
+                      (1 - base - inv_logit(lapse)) * 
+                      inv_logit(0++4.39*(	Type-exp(threshold)	)	/
+                      ( exp (width) ) ),
+  base      ~ 1,# + (1|individual), # guess rate has a single value
+	lapse     ~ 1, #+ (1|individual), # lapse rate can be different for different chicks
+	threshold ~ 1, #+ (1|individual), # threshold changes with all effects
+	width     ~ 1, #+ (1|individual), # threshold-width changes with all effects
+                      nl = TRUE)
+```
+
+
+```{r}
+get_prior(model.formula,data=df)
+```
+
+
+```{r Model priors}
+model.priors  <- c(
+         prior(normal(0.167, 0.05),     nlpar = "base"                       ,lb = 0,ub=0.35), 
+         prior(normal(0.1,0.2),         nlpar = "lapse"                            ,ub = 0.5), 
+         prior(normal(1,1),             nlpar= 'threshold',  class = 'b'                     ), 
+	       prior(normal(1,1),             nlpar = 'width',     class = 'b'                     ),
+         # hyperpriors on the random effects
+         prior(student_t(3,0,0.25),      nlpar = "lapse",     class = sd                    ),
+         prior(student_t(3,0,0.25),      nlpar = "threshold", class = sd                    ),
+         prior(student_t(3,0,0.25),      nlpar = "width",     class = sd                    )
+                   )
+```
+
+
+```{r Stancode, include=FALSE}
+make_stancode(formula = model.formula, data = df, family = bernoulli("identity"),
+              prior = model.priors)
+```
+
+
+```{r}
+model_fit  <- brm(model.formula, data = df, 
+                  family = bernoulli("identity"), iter = 5000,
+                  chains = 4, prior = model.priors, 
+                  control = list(max_treedepth = 12,adapt_delta=0.99)) 
+
+model_fit  <- add_criterion(model_fit, c("loo","waic")) 
+```
+
+
+```{r}
+pairs(model_fit)
+```
+
+
+
+```{r Plot the draws}
+samples <- posterior_samples(model_fit)
+smpl <- mutate(as.data.frame(samples), index = 1:length(lp__))
+ggplot(melt(
+    dplyr::select(smpl,- starts_with("r_")),
+    id.var = "index"), aes(x=index, y=value)) + geom_point(alpha = 0.2, colour = "blue") +
+    facet_wrap(~variable, scale = "free_y") + theme_classic()
+```
+
+
+```{r}
+post_sum <- posterior_summary(model_fit, 
+                  pars=c(
+                    "b_base_Intercept", "b_lapse_Intercept", "b_threshold_Intercept","b_width_Intercept",
+                         "sd_individual__lapse_Intercept","sd_individual__threshold_Intercept","sd_individual__width_Intercept"),
+                         probs = c(0.025,  0.975), robust = TRUE)
+```
+
+
+Trace and density plots for MCMC samples.
+
+```{r Trace and Density Plots for MCMC Samples}
+plot(model_fit, ask=F, newpage=F, N=4 )#, N= 7)
+```
+
+Plot the threshold and width tranformed into degrees in radians.
+
+```{r}
+param2deg <- function(x){
+  out = 180*exp(x)/pi
+  return(out)}
+stanplot(model_fit, pars=c("b_width_Intercept","b_threshold_Intercept"), type="areas",  
+         point_est = "median", prob = 0.8, prob_outer = 0.95,
+         transformations = param2deg) +
+         ggplot2::labs(title = "Posterior distributions", subtitle = "with medians and 80% intervals")
+```
+
+Just the threshold
+
+```{r}
+param2deg <- function(x){
+  out = 180*exp(x)/pi
+  return(out)}
+stanplot(model_fit, pars=c("b_threshold_Intercept"), type="areas",  
+         point_est = "median", prob = 0.8, prob_outer = 0.95,
+         transformations = param2deg) +
+         ggplot2::labs(title = "Posterior distributions", subtitle = "with medians and 95% intervals")
+```
+
+
+Marginal effects with random effects
+
+```{r}
+fitted_CI <- marginal_effects(model_fit, method = "fitted", spaghetti = T, robust=T, re_formula = NULL)
+plot(fitted_CI, theme=theme_classic(), ask=F)
+```
+
+
+
+Marginal effects with random effects
+
+```{r}
+fitted_CI <- marginal_effects(model_fit, method = "fitted", spaghetti = F, robust=T, re_formula = NULL)
+plot(fitted_CI, theme=theme_classic(), ask=F)
+```
+
+
+Marginal effects without random effects
+
+```{r}
+fitted <- marginal_effects(model_fit, method = "fitted", spaghetti = T, probs = c(0.025, 0.975),
+                           robust=T, mean=T, re_formula = NA)
+plot(fitted, theme=theme_classic(), ask=F)
+```
+
+Marginal effects without random effects
+
+```{r}
+fitted_CI <- marginal_effects(model_fit, method = "fitted", spaghetti = F, robust=T,
+                              re_formula = NA)
+plot(fitted_CI, theme=theme_classic(), ask=F)
+```
+
+
+
+
+
+
+
+```{r}
+  pp_check(model_fit,nsamples=400, type="bars",) + theme_classic() + theme(legend.position='none') 
+```
+
+
+```{r}
+  pp_check(model_fit, type = "rootogram", nsamples = 100, style = "standing", prob=0.9) +   theme_classic()  
+```
+
+
+```{r}
+ggplot(data=circ_fun_facts ,aes(x=180*stimulus_period/pi , y=sext.prop, size=n_obs)) +
+geom_point() + theme_classic() + scale_size_area(max_size = 4) + theme(legend.position="none") + ylim(0,0.7) +
+  ylab("Proportion orented towards target sector") + xlab("Stimulus arc width")
+```
+
+```{r}
+null.model.formula <- bf(success ~ 
+                      base + 
+                      (1 - base - inv_logit(lapse)) * 
+                      inv_logit(0++4.39*(	1 - exp(threshold)	)	/
+                      ( exp (width) ) ),
+  base      ~ 1,# + (1|individual), # guess rate has a single value
+	lapse     ~ 1 + (1|individual), # lapse rate can be different for different chicks
+	threshold ~ 1 + (1|individual), # threshold changes with all effects
+	width     ~ 1 + (1|individual), # threshold-width changes with all effects
+                      nl = TRUE)
+
+null.model_fit  <- brm(null.model.formula, data = df, family = bernoulli("identity"), iter = 5000,
+              chains = 4, prior = model.priors, control = list(adapt_delta=0.9999)) # max_treedepth = 12,
+
+null.model_fit <- add_criterion(null.model_fit, c("loo","waic")) 
+loo_compare(model_fit,null.model_fit)
+```
+
+
+> I did a little check with dummy data and I think the watson.two.test (Watson U^2 test) would be conservative enough for careful comparison of spuriously different distributions. 
+
+```{r}
+# watson.two.test()
+```
+
+
+# Plot more things
+
+
+#	Extract the Marginal Effects
+
+Marginal effects at the median, 'median posterior', estimates (specified by robust=TRUE) without group level effects (specified by re_formula=NULL) are extracted. First, we extract estimates for baseline and lapse rate. Setting scale='response' returns fitted values on the scale of the response variable.
+
+```{r Mmarginal effects of the asymptote params}
+base.margins <- marginal_effects(model_fit,#model for extraction
+					nlpar = "base", #guess rate
+					method = "fitted",#predicted regression
+					robust = T, #get median estimate ("MED")
+					resolution = 10^3, #fine resolution,smooth
+					points = F, #don't add original data, can't anyway
+					theme=theme_classic(),#default
+					nsamples = 10^3,#resample a lot
+					scale='response',#invert the link function
+					re_formula = NA) # only fixed effects
+
+lapse.margins <- marginal_effects(model_fit,
+					nlpar = "lapse", #lapse rate
+					method = "fitted",#predicted regression
+					robust = T, #get median estimate ("MED")
+					resolution = 10^3, #fine resolution,smooth
+					points = F, #don't add original data, can't anyway
+					theme=theme_classic(),#default
+					nsamples = 10^3,#resample a lot
+					scale='response',#invert the link function
+					re_formula = NA) # only fixed effects
+```
+
+Then for threshold and width of the psychometric function in each condition combination - the make_conditions function prepares crossed conditons for each variable - it is necessary to get estimates for both discrete predictor variables.
+
+```{r Marginal effects of the psychometric f(x) params}
+thresh.margins <- marginal_effects(model_fit,#model for extraction
+					nlpar = "threshold",#threshold
+#	        conditions=make_conditions(fit,"background"),	
+					method = "fitted",#predicted regression
+					robust = T, #get median estimate ("MED")
+					resolution = 10^3, #fine resolution,smooth
+					points = F, #don't add original data, can't anyway
+					theme=theme_classic(),#default
+					nsamples = 10^3,#resample a lot
+					scale='response',#invert the link function
+					re_formula = NA) # only fixed effects
+
+width.margins <- marginal_effects(model_fit,#model for extraction
+					nlpar = "width", #width of threshold
+#	        conditions=make_conditions(fit,"background"),
+					method = "fitted",#predicted regression
+					robust = T, #get median estimate ("MED")
+					resolution = 10^3, #fine resolution,smooth
+					points = F, #don't add original data, can't anyway
+					theme=theme_classic(),#default
+					nsamples = 10^3,#resample a lot
+					scale='response',#invert the link function
+					re_formula = NA) # only fixed effects
+```
+
+#	Plot the Marginal Effects		
+
+The following code block produces some vectors to plot figures of the marginal effects at the median. As the estimates of the lower and upper asymptotes - the guess (base) rate and lapse rate, respectively - are the same at all levels of the continuous predictor and for all treatments, we can extract only one, the first, estimate of each (*bse* and *lps*) to use throughout. The lapse parameter must be transformed to logistic (inverse logit) - as it was estimated in logit space in the model. To extract fitted values for the threshold and width parameters of the psychometric function, which were estimated in log space, we exponentiate the estimates to get *thi* and *wdi*, respectively.We can then calculate the predicted proportion of correct choices, *phi1*, for each value of colour difference based on the psychometric function, and accounting for the guess and lapse rate. Mean values across conditions are used for the threshold and width of the curve. 
+
+```{r Marginal effects vectors}
+bse <- base.margins$stimulus_period$estimate__[1]
+lps <- plogis(lapse.margins$stimulus_period$estimate__[1])
+thi <- exp(median(thresh.margins$stimulus_period$estimate__))
+wdi <- exp(median(width.margins$stimulus_period$estimate__))
+ddCD <- seq(from = 0, to = 6, length.out = 10^3) # #make an x variable to plot against
+fofx <- plogis( (4.39 * ((ddCD)-thi))/(wdi) ) # f(x) curve of the psychometric function
+phi1 <- bse + (1-lps-bse)*fofx # the psychometric function, accounting for guess rate & lapse rate
+```
+
+
+#	Plot the modelled relationships	
+
+This section creates variables to plot best fit lines for each set of conditions. The scalar *non-psych* is a fraction that determines the curve's maximum height above guess rate. Point estimates of the model parameters for each condition are fed into the model for the four treatments.  
+
+
+```{r}
+ddd <- as.vector(fitted$stimulus_period$estimate__) 
+eee <- as.vector(fitted$stimulus_period$stimulus_period)
+
+#### get smoothed curve
+lo <- loess(ddd~eee, span=0.5)
+plot(eee,ddd)
+lines(predict(lo), col='red', lwd=2)
+cc <- as.numeric(lo$x); dd <- as.numeric(lo$fitted)
+lo.df <- cbind.data.frame(cc,dd)
+#data <- lo.df[order(lo.df$x), ]
+derivative = c(diff(lo.df$dd) / diff(lo.df$cc), 0)
+find.df <- cbind.data.frame(cc,derivative)
+ggplot(find.df, aes(cc, derivative)) + geom_line()
+max_deriv <- which(derivative==max(derivative))
+inflection_pt_rads <- cc[max_deriv]
+inflection_pt_degs <- inflection_pt_rads*180/pi
+inflection_pt_degs
+```
+
+The CIs in the plot are at 28 + 8.52 degrees = *36.52* degrees and 85 - 2.78 = *82.2* degrees 
+
+```{r}
+round(c(36.52,82.2))
+```
+
+
+
+```{r message=FALSE}
+signalz <- read_delim('signals.txt', delim="\t") 
+signalz$target2delrho <- signalz$target2stim*signalz$stim2delrho    ## factor to multiply arc size by to 
+# to normalize values to the dark fwhm
+DoG.crossing.to.fwhm.ratio <- 1/0.614445
+```
+
+Rescale the estimate to be comparable to these estimates from Jochen's MATLAB scripts (described in urchin paper) 
+
+```{r}
+detection_estimate         <- c(36.52 ,55.545, 82.2) #c(0.5433509)*(180/pi) #56
+detection_estimate         <-  82.2
+detection_est_transformed  <- c(detection_estimate) # * sqrt(3) * DoG.crossing.to.fwhm.ratio 
+#res_ests <- array(dim = c(12,length(detection_estimate)))
+#for(i in 1:length(detection_estimate)){
+#  res_ests[,i] <- (detection_est_transformed[i] * signalz$stim2delrho[signalz$signal=="DoG"])
+#}
+res_ests     <- (detection_est_transformed * signalz$stim2delrho[signalz$signal=="DoG"])
+res          <- cbind.data.frame(cont_thresh=signalz$contrast.threshold[1:12],res_ests)
+```
+
+And plot the central (median) estimate
+
+```{r}
+xx  <- res$cont_thresh
+new <- data.frame(cont_thresh = seq(from=min(xx),to=max(xx),length.out=2000))
+d <- predict(smooth.spline(res$res_ests ~ res$cont_thresh, df=10), new )
+dev.new()
+plot(d$x$cont_thresh,d$y$cont_thresh,xlab="Contrast threshold",xlim=c(5,20),ylim = c(30,160),
+     ylab="Acceptance angle",bty="n",cex=0.25)
+#line(d$x$cont_thresh,d$y$cont_thresh,xlab="Contrast threshold",xlim=c(5,20),ylim = c(30,100),
+#     ylab="Acceptance angle",bty="n",cex=0.25)
+#ggplot(data= res, aes(x=cont_thresh,y=2:4)) + geom_smooth()
+```
+
+
+

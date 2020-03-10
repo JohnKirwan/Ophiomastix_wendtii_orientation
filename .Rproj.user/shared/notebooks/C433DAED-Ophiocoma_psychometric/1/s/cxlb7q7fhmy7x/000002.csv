@@ -1,0 +1,2 @@
+"0","seq1 <- seq(from=0,to=2,length.out = 500)"
+"0","plot(seq1,dstudent_t(seq1,3,0,0.5),xlab=""S.D. on individual variation of curve Width"")"

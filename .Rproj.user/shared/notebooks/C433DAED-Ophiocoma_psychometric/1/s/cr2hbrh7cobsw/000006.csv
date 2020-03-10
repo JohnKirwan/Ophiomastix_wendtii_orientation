@@ -1,0 +1,1 @@
+"0","plot(exp(seq1),dnorm(exp(seq1), 1,1),main=""Threshold and width"")"
