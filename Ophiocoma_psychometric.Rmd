@@ -18,6 +18,7 @@ library('magrittr')
 library('readr')
 library('dplyr')
 library('reshape2')
+library('skimr')
 library('tibble')
 library('CircStats')
 library('circular')
@@ -27,11 +28,11 @@ rstan_options(auto_write = TRUE)
 library('brms')
 ```
 
-Load the data. The column stimulus_period refers to the period (intensity) of the stimulus at each observation; radian and degree are the headings taken by the animal from the centre in radians and degrees respectively. Batch refers to animals collected and tested in either 2018 or 2019.
+Load the data. The column stimulus_T refers to the period (intensity) of the stimulus at each observation; radian and degree are the headings taken by the animal from the centre in radians and degrees respectively. Batch refers to animals collected and tested in either 2018 or 2019.
 
 ```{r Load data}
 # df <- read_delim('Threshold_size.txt', delim = '\t')
-df <- read_delim('Threshold_size.txt', delim = '\t')
+df <- read_delim('Ophiocoma_psychometric.txt', delim = '\t')
 #added the following from other rmd
 df$heading <- as.numeric(df$Relative_heading_degrees)*pi/180
 df$heading[df$heading > pi] <- -pi +(df$heading[df$heading > pi] -pi)
@@ -49,8 +50,14 @@ df <- subset.data.frame(df, select = -c(Absolute_heading_degrees,Relative_headin
 We represent the stimulus period and target half width angles in radians rather than degrees because the smaller (but still positive) values for the model predictor are preferable.  
 
 ```{r}
-df$Type <- pi * df$Type / 180
+df$stimulus_T <- pi * df$Type / 180
 ```
+
+
+```{r}
+skim(df)
+```
+
 
 ## Discretization
 Here, we define the sector of the circle which we consider to be the 'target' region.
@@ -60,8 +67,8 @@ df %>% mutate(success = 0) -> df
 #for(i in 1:length(df$Absolute_heading_radians)){df$success[i] <- NA}
 for(i in 1:length(df$Relative_heading_radians)){           ### get tote of each using one fifth of the circle
   if(is.na(df$heading[i]) == TRUE){df$success[i] <- 0}
-  else if(df$heading[i] >   0.524) {df$success[i] <- 0}    ## pi/5 beforehand
-  else if(df$heading[i] <= -0.524 ){df$success[i] <- 0}  ## -pi/5 beforehand
+  else if(df$heading[i] >   pi/6) {df$success[i] <- 0}    ## pi/5 beforehand
+  else if(df$heading[i] <= -pi/6 ){df$success[i] <- 0}  ## -pi/5 beforehand
   else{df$success[i] <- 1}  }
 ```
 
@@ -202,14 +209,14 @@ Cplot <- function(headings, sp, bt, ax, ...){
 
 for(i in Type){
     Cplot(df$heading_deg[df$Type==i],0.06)#,
-         # lci= mle.vonmises.bootstrap.ci(df$degree[df$stimulus_period==i])$mu.ci[1],
-         #  uci= mle.vonmises.bootstrap.ci(df$degree[df$stimulus_period==i])$mu.ci[1] )
+         # lci= mle.vonmises.bootstrap.ci(df$degree[df$stimulus_T==i])$mu.ci[1],
+         #  uci= mle.vonmises.bootstrap.ci(df$degree[df$stimulus_T==i])$mu.ci[1] )
     Type.prop[j] <- sum(df$success[df$Type==i])/length(df$success[df$Type==i])
     j <- j + 1  }
 ```
 
 
-Have a look at what happens with differing stimulus_period width of the target, to get an impression of the response and to see if the result is likely to be robust to changes in the stimulus_period width.
+Have a look at what happens with differing stimulus_T width of the target, to get an impression of the response and to see if the result is likely to be robust to changes in the stimulus_T width.
 
 ```{r Treatment summary, message=TRUE, warning=FALSE}
 df %>% as_tibble %>%                 # dataframe name
@@ -217,7 +224,7 @@ df %>% as_tibble %>%                 # dataframe name
   mutate(in.pent = ifelse(abs(heading) < pi/5, 1, 0)) %>% # for data in radians -pi to pi
   mutate(in.sext = ifelse(abs(heading) < pi/6, 1, 0)) %>% # for data in radians -pi to pi
   mutate(in.oct = ifelse(abs(heading) < pi/8, 1, 0))  %>% # for data in radians -pi to pi
-  group_by(Type) %>%                # condition name
+  group_by(stimulus_T) %>%                # condition name
   summarize(target = round(Type * 180 / pi)[1],
             n_obs = n(),                   ## observations for treatment
             #uniq_ind = n_distinct(individual),    ## unique individuals by treatment
@@ -249,7 +256,7 @@ circ_fun_facts
 ```
 
 
-```{r ROC curve}
+```{r}
 circ_fun_facts %>% 
   ggplot(aes(180*Type/pi, sext.prop)) + geom_line(color="pink",size=3)  + ylab("Proportion correct responses") +
   theme_classic() + xlab("Stimulus period") +  ## data in target quadrant
@@ -296,7 +303,7 @@ plot(seq1,dstudent_t(seq1,3,0,0.5),xlab="S.D. on individual variation of curve W
 model.formula <- bf(success ~ 
                       base + 
                       (1 - base - inv_logit(lapse)) * 
-                      inv_logit(0++4.39*(	Type-exp(threshold)	)	/
+                      inv_logit(0++4.39*(	stimulus_T-exp(threshold)	)	/
                       ( exp (width) ) ),
   base      ~ 1,# + (1|individual), # guess rate has a single value
 	lapse     ~ 1, #+ (1|individual), # lapse rate can be different for different chicks
@@ -316,11 +323,11 @@ model.priors  <- c(
          prior(normal(0.167, 0.05),     nlpar = "base"                       ,lb = 0,ub=0.35), 
          prior(normal(0.1,0.2),         nlpar = "lapse"                            ,ub = 0.5), 
          prior(normal(1,1),             nlpar= 'threshold',  class = 'b'                     ), 
-	       prior(normal(1,1),             nlpar = 'width',     class = 'b'                     ),
+	       prior(normal(1,1),             nlpar = 'width',     class = 'b'                     )#,
          # hyperpriors on the random effects
-         prior(student_t(3,0,0.25),      nlpar = "lapse",     class = sd                    ),
-         prior(student_t(3,0,0.25),      nlpar = "threshold", class = sd                    ),
-         prior(student_t(3,0,0.25),      nlpar = "width",     class = sd                    )
+    #     prior(student_t(3,0,0.25),      nlpar = "lapse",     class = sd                    ),
+    #     prior(student_t(3,0,0.25),      nlpar = "threshold", class = sd                    ),
+    #     prior(student_t(3,0,0.25),      nlpar = "width",     class = sd                    )
                    )
 ```
 
@@ -447,7 +454,7 @@ plot(fitted_CI, theme=theme_classic(), ask=F)
 
 
 ```{r}
-ggplot(data=circ_fun_facts ,aes(x=180*stimulus_period/pi , y=sext.prop, size=n_obs)) +
+ggplot(data=circ_fun_facts ,aes(x=180*stimulus_T/pi , y=sext.prop, size=n_obs)) +
 geom_point() + theme_classic() + scale_size_area(max_size = 4) + theme(legend.position="none") + ylim(0,0.7) +
   ylab("Proportion orented towards target sector") + xlab("Stimulus arc width")
 ```
@@ -458,10 +465,10 @@ null.model.formula <- bf(success ~
                       (1 - base - inv_logit(lapse)) * 
                       inv_logit(0++4.39*(	1 - exp(threshold)	)	/
                       ( exp (width) ) ),
-  base      ~ 1,# + (1|individual), # guess rate has a single value
-	lapse     ~ 1 + (1|individual), # lapse rate can be different for different chicks
-	threshold ~ 1 + (1|individual), # threshold changes with all effects
-	width     ~ 1 + (1|individual), # threshold-width changes with all effects
+  base      ~ 1, #+ #(1|individual), # guess rate has a single value
+	lapse     ~ 1, #+ #(1|individual), # lapse rate can be different for different chicks
+	threshold ~ 1, #+ #(1|individual), # threshold changes with all effects
+	width     ~ 1, #+ #(1|individual), # threshold-width changes with all effects
                       nl = TRUE)
 
 null.model_fit  <- brm(null.model.formula, data = df, family = bernoulli("identity"), iter = 5000,
@@ -543,10 +550,10 @@ width.margins <- marginal_effects(model_fit,#model for extraction
 The following code block produces some vectors to plot figures of the marginal effects at the median. As the estimates of the lower and upper asymptotes - the guess (base) rate and lapse rate, respectively - are the same at all levels of the continuous predictor and for all treatments, we can extract only one, the first, estimate of each (*bse* and *lps*) to use throughout. The lapse parameter must be transformed to logistic (inverse logit) - as it was estimated in logit space in the model. To extract fitted values for the threshold and width parameters of the psychometric function, which were estimated in log space, we exponentiate the estimates to get *thi* and *wdi*, respectively.We can then calculate the predicted proportion of correct choices, *phi1*, for each value of colour difference based on the psychometric function, and accounting for the guess and lapse rate. Mean values across conditions are used for the threshold and width of the curve. 
 
 ```{r Marginal effects vectors}
-bse <- base.margins$stimulus_period$estimate__[1]
-lps <- plogis(lapse.margins$stimulus_period$estimate__[1])
-thi <- exp(median(thresh.margins$stimulus_period$estimate__))
-wdi <- exp(median(width.margins$stimulus_period$estimate__))
+bse <- base.margins$stimulus_T$estimate__[1]
+lps <- plogis(lapse.margins$stimulus_T$estimate__[1])
+thi <- exp(median(thresh.margins$stimulus_T$estimate__))
+wdi <- exp(median(width.margins$stimulus_T$estimate__))
 ddCD <- seq(from = 0, to = 6, length.out = 10^3) # #make an x variable to plot against
 fofx <- plogis( (4.39 * ((ddCD)-thi))/(wdi) ) # f(x) curve of the psychometric function
 phi1 <- bse + (1-lps-bse)*fofx # the psychometric function, accounting for guess rate & lapse rate
@@ -559,8 +566,8 @@ This section creates variables to plot best fit lines for each set of conditions
 
 
 ```{r}
-ddd <- as.vector(fitted$stimulus_period$estimate__) 
-eee <- as.vector(fitted$stimulus_period$stimulus_period)
+ddd <- as.vector(fitted$stimulus_T$estimate__) 
+eee <- as.vector(fitted$stimulus_T$stimulus_T)
 
 #### get smoothed curve
 lo <- loess(ddd~eee, span=0.5)

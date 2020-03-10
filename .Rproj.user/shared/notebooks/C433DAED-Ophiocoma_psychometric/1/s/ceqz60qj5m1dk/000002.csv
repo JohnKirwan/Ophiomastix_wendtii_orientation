@@ -1,7 +1,7 @@
 "0","model.formula <- bf(success ~ "
 "0","                      base + "
 "0","                      (1 - base - inv_logit(lapse)) * "
-"0","                      inv_logit(0++4.39*(	Type-exp(threshold)	)	/"
+"0","                      inv_logit(0++4.39*(	stimulus_T-exp(threshold)	)	/"
 "0","                      ( exp (width) ) ),"
 "0","  base      ~ 1,# + (1|individual), # guess rate has a single value"
 "0","	lapse     ~ 1, #+ (1|individual), # lapse rate can be different for different chicks"

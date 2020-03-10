@@ -1,8 +1,0 @@
-"0","circ_fun_facts %>% "
-"0","  ggplot(aes(180*Type/pi, sext.prop)) + geom_line(color=""pink"",size=3)  + ylab(""Proportion correct responses"") +"
-"0","  theme_classic() + xlab(""Stimulus period"") +  ## data in target quadrant"
-"0","  geom_line(aes(y=oct.prop), color=""red"")   +                            ## data in target octant"
-"0","  geom_line(aes(y=quad.prop), color=""blue"")        +                       ## data in target octant"
-"0","   geom_line(data=circ_fun_facts,aes(x=180*Type/pi , y=pent.prop),size=1) + "
-"0","   geom_hline(yintercept = 1/6) +"
-"0","   geom_bin2d(data=df,aes(y = success, x = 180*Type/pi)) # counts"

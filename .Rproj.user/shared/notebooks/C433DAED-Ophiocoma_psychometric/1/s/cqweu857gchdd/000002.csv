@@ -1,1 +1,1 @@
-"0","df$Type <- pi * df$Type / 180"
+"0","df$stimulus_T <- pi * df$Type / 180"
