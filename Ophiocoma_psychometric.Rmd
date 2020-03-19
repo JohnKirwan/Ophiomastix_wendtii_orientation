@@ -421,28 +421,6 @@ plot(fitted_CI, theme=theme_classic(), ask=F)
 ```
 
 
-Marginal effects without random effects
-
-```{r}
-fitted <- marginal_effects(model_fit, method = "fitted", spaghetti = T, probs = c(0.025, 0.975),
-                           robust=T, mean=T, re_formula = NA)
-plot(fitted, theme=theme_classic(), ask=F)
-```
-
-Marginal effects without random effects
-
-```{r}
-fitted_CI <- marginal_effects(model_fit, method = "fitted", spaghetti = F, robust=T,
-                              re_formula = NA)
-plot(fitted_CI, theme=theme_classic(), ask=F)
-```
-
-
-
-
-
-
-
 ```{r}
   pp_check(model_fit,nsamples=400, type="bars",) + theme_classic() + theme(legend.position='none') 
 ```
@@ -458,6 +436,7 @@ ggplot(data=circ_fun_facts ,aes(x=180*stimulus_T/pi , y=sext.prop, size=n_obs)) 
 geom_point() + theme_classic() + scale_size_area(max_size = 4) + theme(legend.position="none") + ylim(0,0.7) +
   ylab("Proportion orented towards target sector") + xlab("Stimulus arc width")
 ```
+
 
 ```{r}
 null.model.formula <- bf(success ~ 
