@@ -1,4 +1,7 @@
 .Rproj.user
+.Rproj.user/
+.Rproj.user*
+.Rproj.user/*
 .Rhistory
 .RData
 .Ruserdata
@@ -119,3 +122,8 @@
 .Rproj.user/2AD58C85/sources/prop/2A9C4506
 .Rproj.user/shared/notebooks/C433DAED-Ophiocoma_psychometric/1/s/chunks.json
 .Rhistory
+.Rproj.user/2AD58C85/sources/prop/INDEX
+.Rproj.user/2AD58C85/sources/prop/INDEX
+.Rproj.user/shared/notebooks/paths
+.Rproj.user/shared/notebooks/paths
+.Rproj.user/2AD58C85/sources/prop/INDEX

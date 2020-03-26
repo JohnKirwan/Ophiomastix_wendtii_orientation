@@ -32,7 +32,7 @@ Load the data. The column stimulus_T refers to the period (intensity) of the sti
 
 ```{r Load data}
 # df <- read_delim('Threshold_size.txt', delim = '\t')
-df <- read_delim('Ophiocoma_psychometric.txt', delim = '\t')
+df <- read_delim('../data/Ophiocoma_psychometric.txt', delim = '\t')
 #added the following from other rmd
 df$heading <- as.numeric(df$Relative_heading_degrees)*pi/180
 df$heading[df$heading > pi] <- -pi +(df$heading[df$heading > pi] -pi)
@@ -573,7 +573,7 @@ round(c(36.52,82.2))
 
 
 ```{r message=FALSE}
-signalz <- read_delim('signals.txt', delim="\t") 
+signalz <- read_delim('../data/signals.txt', delim="\t") 
 signalz$target2delrho <- signalz$target2stim*signalz$stim2delrho    ## factor to multiply arc size by to 
 # to normalize values to the dark fwhm
 DoG.crossing.to.fwhm.ratio <- 1/0.614445
