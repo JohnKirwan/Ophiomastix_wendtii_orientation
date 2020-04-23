@@ -32,8 +32,7 @@ library('brms')
 Load the data. The column *target* refers to the target of the stimulus at each observation; radian and degree are the headings taken by the animal from the centre in radians and degrees respectively. Batch refers to animals collected and tested in either 2018 or 2019. Load the data and make into radians from -pi to pi. We represent the stimulus period and target half width angles in radians rather than degrees because the smaller (but still positive) values for the model predictor are preferable.  
 
 ```{r}
-knitr::opts_chunk$set(root.dir = normalizePath(".."))  # set wd to main dir
-full <- read_delim('../data/O_wendtii_2019.txt', delim = '\t')
+full <- read_delim('Ophiocoma_resolution_contrast_data.txt', delim = '\t')
 full %>% filter(contrast %in% c( 0,1)) -> res
 full$T <- round(full$target / max(full$target),2)
 d2r <- function(x){ x <- x*pi/180 } # turn degrees to radians
@@ -133,6 +132,8 @@ Make dataframe for the contrast experiment and the resolution experiment. Each i
 
 Below, we make circular plots of the vectors for each of the treatments. Code borrowed and modified from James J. Foster (University of Würzburg).
 
+The confidence interval in these plots represents confidence intervals from bootstrapped maximum likelihood (in contrast to Sumner-Rooney *et al* (2020) where they represent circular standard deviation).
+
 
 ```{r Contrast circular plots, message=FALSE}
 source('Cplot2_rad.R')
@@ -204,40 +205,42 @@ The following non-default priors were given to brms. An informative prior was us
 
 This is the (exponentiated) prior applied to width of the psychometric curve between 10% and 90% of its maximum height and the model threshold.
 
-### Prior Predictive Distribution
+### Prior Predictive Distribution for Resolution
 
 Below, we plot the possible range of values deemed by the priors and where predictions are distributed. A stimulus with the maximal target used (70 degrees) is already extremmely wide. We know the base should be at 0.167 by random chance - so we put the location of the base parameter prior at this value, but allow it to vary around this point. Constraints are placed on base and lapse to prevent them overlappping. Priors on threshold and width keep these parameters within the possible range of angles. The inverse logit (logistic) function is *plogis* in base.
+
+From previous data, we know the response rate of this species to a salient stimulus is within the range 0.3 to 0.8.
 
 ```{r}
 set.seed(196)
 N          <- 1000
 base       <- rnorm(N,0.167,0.05)  # Base is close to random probability 
-lapse      <- rbeta(N,3,5)       # Lapse is wide range - should not overlap base rate
-lapse      <- runif(N,0,.65)
-threshold  <- rnorm(N,-.5,0.5)    # Threshold must be > 0 and can be > 1.
-width      <- rnorm(N,-.5,0.5)    # Width must be > 0 and can be > 1.
+lapse      <- rbeta(N,15,15)       # Lapse is wide range - should not overlap base rate
+#lapse      <- runif(N,0,.75)
+threshold  <- rgamma(N,2,2)    # Threshold must be > 0 and can be > 1.
+width      <- rgamma(N,2,2)    # Width must be > 0 and can be > 1.
                                    # Varying intercept lapse
                                    # Varying intercepts base
 
-plot( NULL, xlim = c(-.5,2), ylim = c(0,1) , 
+plot( NULL, xlim = c(-.5,2.5), ylim = c(0.1,0.8) , 
       xlab = "Scaled stimulus strength", ylab = "Proportion correct response" )
 abline (h=1/6, lty=2)
 for ( i  in 1:N ) curve (
         base[i] + 
           (1 - base[i] - lapse[i]) * 
-          plogis(0++4.39*(	x - exp(threshold[i])	)	/ ( exp (width[i]) ) ),
-   from=-.5, to = 2, add = TRUE, col = col.alpha("black",0.1))
+          plogis(4.39*(	x - threshold[i]	)	/ ( (width[i]) ) ),
+   from=-.5, to = 2.5, add = TRUE, col = col.alpha("black",0.1))
 
 ```
 
 ### *Empty* model without predictor
 
 
-```{r}
+```{r Empty model}
 res.empty.formula <- bf(success ~ 
                       base + 
                       (1 - base - lapse) * 
-                      inv_logit( 4.39*(	1 - exp(threshold)	)	/  exp(width)  ),
+                      inv_logit( 4.39*(	1 - threshold)	/  width  ),
   base      ~ 1,# + (1|individual), # guess rate has a single value
 	lapse     ~ 1, #+ (1|individual), # lapse rate can be different for different chicks
 	threshold ~ 1, #+ (1|individual), # threshold changes with all effects
@@ -246,43 +249,44 @@ res.empty.formula <- bf(success ~
 
 res.psych.priors  <- c(
          prior(normal(0.167,0.05),   nlpar = "base",        lb=0,ub= 0.25),               
-         prior(beta(3,5),      nlpar = "lapse"             ,lb=0,ub= 0.74      ), 
-         prior(normal(-.5,.5),         nlpar= 'threshold',  class = 'b'   ),
-	       prior(normal(-.5,.5),         nlpar = 'width',     class = 'b'     ))
+         prior(beta(15,15),          nlpar = "lapse"             ,lb=0,ub= 0.74      ), 
+         prior(gamma(2,2),         nlpar= 'threshold',  class = 'b'   ),
+	       prior(gamma(2,2),         nlpar = 'width',     class = 'b'     ))
 
 res.empty.fit  <- brm(res.empty.formula, data = res, family = bernoulli("identity"), iter = 5000,
-              chains = 4, prior = res.psych.priors, control = list(adapt_delta=0.9999)) 
+              chains = 4, prior = res.psych.priors, control = list(adapt_delta=0.99999)) 
 
 res.empty.fit <- add_criterion(res.empty.fit, c("loo","waic")) 
 ```
 
-### Version with H&B formulation with estimated lapse and base
+## Main model
 
-```{r}
+```{r Main model}
 res.psych.formula <- bf(success ~ 
                       base + 
                       (1 - base - lapse) * 
-                      inv_logit( 4.39*(	T - exp(threshold)	)	/  exp(width)  ),
-  base      ~ 1,# + (1|individual), # guess rate has a single value
-	lapse     ~ 1, #+ (1|individual), # lapse rate can be different for different chicks
-	threshold ~ 1, #+ (1|individual), # threshold changes with all effects
-	width     ~ 1, #+ (1|individual), # threshold-width changes with all effects
-                      nl = TRUE)
+                      inv_logit( 4.39*(	T - threshold	)	/  width  ),
+  base  ~ 1, lapse ~ 1, threshold ~ 1, width ~ 1, nl = TRUE)
 
 res.psych.priors  <- c(
          prior(normal(0.167,0.05),   nlpar = "base",        lb=0,ub= 0.25),               
-         prior(beta(3,5),      nlpar = "lapse"             ,lb=0,ub= 0.74      ), 
-         prior(normal(-.5,.5),         nlpar= 'threshold',  class = 'b'   ),
-	       prior(normal(-.5,.5),         nlpar = 'width',     class = 'b'     ))
+         prior(beta(15,15),            nlpar = "lapse"             ,lb=0,ub= 0.74      ), 
+         prior(gamma(2,2),           nlpar= 'threshold',  class = 'b'   ),
+	       prior(gamma(2,2),           nlpar = 'width',     class = 'b'     ))
 
 res.psych.fit  <- brm(res.psych.formula, data = res, 
                   family = bernoulli("identity"), iter = 2500,
                   chains = 4, prior = res.psych.priors, 
                   control = list(max_treedepth = 12,
-                                 adapt_delta=0.9999)) 
+                                 adapt_delta=0.9999999)) 
 
 res.psych.fit  <- add_criterion(res.psych.fit, c("loo","waic")) 
 ```
+
+```{r}
+conditional_effects(res.psych.fit)
+```
+
 
 According to the checks below (rhat and ESS) the model fit fine.
 
@@ -298,39 +302,9 @@ plot(res.psych.fit)
 
 
 ```{r}
-conditional_effects(res.psych.fit)
-```
-
-
-```{r}
 loo_compare(res.psych.fit,res.empty.fit)
 ```
 
-
-### Categorical model
-
-For completeness, we can include a model with a categorical predictor.
-
-```{r}
-res$Tc <- as.factor(res$target)
-res.cat <- bf(success ~ Tc, family = bernoulli(link="logit"))
-
-res.cat.prior  <- c(
-         prior(normal(0,1),   class = "Intercept"), 
-	       prior(normal(0,1),   class = 'b'     )
-                   )
-
-res.cat.fit  <- brm(res.cat, data = res, 
-                  family = bernoulli("logit"), iter = 2000,
-                  chains = 4, prior = res.cat.prior)
-
-res.cat.fit  <- add_criterion(res.cat.fit, c("loo","waic")) 
-```
-
-
-```{r}
-conditional_effects(res.cat.fit)
-```
 
 
 ```{r Extract the samples}
@@ -350,7 +324,7 @@ Plot the threshold and width tranformed.
 
 ```{r}
 param_trans <- function(x){
-  out = exp(x)*max(res$target)
+  out = x*max(res$target)
   return(out)}
 mcmc_areas(res.psych.fit, pars=c("b_threshold_Intercept","b_width_Intercept"),   
          point_est = "median", prob = 0.8, prob_outer = 0.95,
@@ -381,13 +355,13 @@ geom_point() + theme_classic() + scale_size_area(max_size = 4) + theme(legend.po
 ### Plot each line from the draws and find the inflection point of each
 
 ```{r}
-N = 420
+N = 70*3*5
 vals <- array(dim=c(5000,N))
 turn.idx <- vector(length = length(res.smpl[,1]))
-x <- seq(from=0,to=1.5,length.out = N)
+x <- seq(from=0,to=3,length.out = N)
 newdat <- data.frame(T = T)
 
-plot( NULL, xlim = c(0,1.5), ylim = c(0.1,.7) , 
+plot( NULL, xlim = c(0,3), ylim = c(0.1,.7) , 
       xlab = "Scaled stimulus strength", ylab = "Proportion correct response" )
 abline (h=1/6, lty=2)
 i = 1
@@ -395,8 +369,8 @@ for ( i  in 1:length(res.smpl[,1])){
 
   vals[i,] <- res.smpl$b_base_Intercept[i] + 
           (1 - res.smpl$b_base_Intercept[i] - res.smpl$b_lapse_Intercept[i]) * 
-          plogis(4.39*(	x - exp(res.smpl$b_threshold_Intercept[i])	)	/ 
-                    exp(res.smpl$b_width_Intercept[i]) )
+          plogis(4.39*(	x - res.smpl$b_threshold_Intercept[i]	)	/ 
+                    (res.smpl$b_width_Intercept[i]) )
   lines(x,vals[i,],col = col.alpha("black",0.02))
   
   #infl[i] <- c(FALSE, diff(diff(vals[i,])>0)!=0)
@@ -412,7 +386,7 @@ The turning point of the curve corresponds to the threshold (in our interpretati
 
 ```{r}
 turning.pts <- turn.idx/5
-hist(turning.pts,breaks = 200)
+hist(turning.pts,breaks = 100)
 ```
 
 Below, are two confidence intervals for the turning point.
@@ -430,6 +404,33 @@ Compare to the value of the *threshold* parameter (transformed) for reference: T
 ```{r}
 HPDI(exp(res.smpl$b_threshold_Intercept)*max(res$target))
 ```
+
+### Categorical model
+
+For completeness, we can include a model with a categorical predictor.
+
+```{r}
+res$Tc <- as.factor(res$target)
+res.cat <- bf(success ~ Tc, family = bernoulli(link="logit"))
+
+res.cat.prior  <- c(
+         prior(normal(0,1),   class = "Intercept"), 
+	       prior(normal(0,1),   class = 'b'     )
+                   )
+
+res.cat.fit  <- brm(res.cat, data = res, 
+                  family = bernoulli("logit"), iter = 2000,
+                  chains = 4, prior = res.cat.prior)
+
+res.cat.fit  <- add_criterion(res.cat.fit, c("loo","waic")) 
+```
+
+
+```{r}
+conditional_effects(res.cat.fit)
+```
+
+
 
 # Contrast
 
@@ -521,7 +522,7 @@ circ_fun_con %>%
 ```
 
 
-## Prior Predictive Distribution
+## Prior Predictive Distribution for contrast
 
 The inverse logit (logistic) function is *plogis* in base.
 
@@ -529,9 +530,9 @@ The inverse logit (logistic) function is *plogis* in base.
 set.seed(196)
 N          <- 1000
 base       <- rnorm(N,0.167,0.05)  # Base is close to random probability 
-lapse      <- rbeta(N,3,5)       # Lapse is wide range - should not overlap base rate
-threshold  <- rnorm(N,-.5,.5)    # Threshold must be > 0 and can be > 1.
-width      <- rnorm(N,-.5,.5)    # Width must be > 0 and can be > 1.
+lapse      <- rbeta(N,15,15)       # Lapse is wide range - should not overlap base rate
+threshold  <- rgamma(N,2,3)    # Threshold must be > 0 and can be > 1.
+width      <- rgamma(N,2,3)    # Width must be > 0 and can be > 1.
                                    # Varying intercept lapse
                                    # Varying intercepts base
 
@@ -541,7 +542,7 @@ abline (h=1/6, lty=2)
 for ( i  in 1:N ) curve (
         base[i] + 
           (1 - base[i] - lapse[i]) * 
-          plogis(0++4.39*(	x - exp(threshold[i])	)	/ ( exp (width[i]) ) ),
+          plogis(4.39*(	x - (threshold[i])	)	/ (  (width[i]) ) ),
    from=-.5, to = 1.5, add = TRUE, col = col.alpha("black",0.1))
 
 ```
@@ -553,14 +554,14 @@ for ( i  in 1:N ) curve (
 con.psych.formula <- bf(success ~ 
                       base + 
                       (1 - base - lapse) * 
-                      inv_logit( 4.39*(	contrast - exp(threshold)	)	/  exp(width)  ),
+                      inv_logit( 4.39*(	contrast - (threshold)	)	/  (width)  ),
   base      ~ 1,	lapse     ~ 1, threshold ~ 1, width     ~ 1, nl = TRUE)
 
 con.psych.priors  <- c(
          prior(normal(0.167,0.05),   nlpar = "base",        lb=0,ub= 0.25),               
-         prior(beta(3,5),      nlpar = "lapse"             ,lb=0,ub= 0.74      ), 
-         prior(normal(-.5,.5),         nlpar= 'threshold',  class = 'b'   ),
-	       prior(normal(-.5,.5),         nlpar = 'width',     class = 'b'     ))
+         prior(beta(15,15),      nlpar = "lapse"             ,lb=0,ub= 0.74      ), 
+         prior(gamma(2,3),         nlpar= 'threshold',  class = 'b'   ),
+	       prior(gamma(2,3),         nlpar = 'width',     class = 'b'     ))
 
 con.psycho.fit  <- brm(con.psych.formula, data = con, 
                   family = bernoulli("identity"), iter = 2500,
@@ -646,8 +647,8 @@ geom_point() + theme_classic() + scale_size_area(max_size = 4) + theme(legend.po
 con.empty.formula <- bf(success ~ 
                       base + 
                       (1 - base - inv_logit(lapse)) * 
-                      inv_logit(4.39*(	1 - exp(threshold)	)	/
-                      ( exp (width) ) ),
+                      inv_logit(4.39*(	1 - (threshold)	)	/
+                      (  (width) ) ),
   base      ~ 1, #+ #(1|individual), # guess rate has a single value
 	lapse     ~ 1, #+ #(1|individual), # lapse rate can be different for different chicks
 	threshold ~ 1, #+ #(1|individual), # threshold changes with all effects
