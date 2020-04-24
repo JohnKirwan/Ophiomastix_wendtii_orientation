@@ -308,16 +308,14 @@ loo_compare(res.psych.fit,res.empty.fit)
 
 
 ```{r Extract the samples}
-res.smpl <- posterior_samples(res.psych.fit)
+res.psych.smpl <- posterior_samples(res.psych.fit)
 ```
 
 
 ```{r}
-post_sum <- posterior_summary(res.psych.fit, 
-                  pars=c(
-                    "b_base_Intercept", "b_lapse_Intercept", "b_threshold_Intercept","b_width_Intercept",
-                         "sd_individual__lapse_Intercept","sd_individual__threshold_Intercept","sd_individual__width_Intercept"),
-                         probs = c(0.025,  0.975), robust = TRUE)
+posterior_summary(res.psych.fit, 
+                  pars=c("b_base_Intercept", "b_lapse_Intercept", "b_threshold_Intercept","b_width_Intercept"),
+                  probs = c(0.025,  0.975), robust = TRUE)
 ```
 
 Plot the threshold and width tranformed.
@@ -330,6 +328,21 @@ mcmc_areas(res.psych.fit, pars=c("b_threshold_Intercept","b_width_Intercept"),
          point_est = "median", prob = 0.8, prob_outer = 0.95,
          transformations = param_trans) +
          ggplot2::labs(title = "Posterior distributions", subtitle = "with medians and 80% intervals")
+```
+
+### Confidence intervals of the threshold parameter.
+
+PI (percentile interval) is a confidence interval similar to that conventionally used in frequentist statistics, which assigns equal mass to each tail. 
+
+```{r}
+threshold_smpl <- (res.psych.smpl$b_threshold_Intercept)*max(res$target)
+round(PI(threshold_smpl,prob=.95),0)
+```
+
+HPDI (highest posterior density) is an alternative confidence interval which is especially useful is the distribution is skewed. 
+
+```{r}
+round(HPDI(threshold_smpl,prob=.95),0)
 ```
 
 ### Graphical Posterior predictive checks
@@ -392,11 +405,11 @@ hist(turning.pts,breaks = 100)
 Below, are two confidence intervals for the turning point.
 
 ```{r}
-PI(turning.pts,prob=.95)
+round(PI(turning.pts,prob=.95),0)
 ```
 
 ```{r}
-HPDI(turning.pts,prob=.95)
+round(HPDI(turning.pts,prob=.95),0)
 ```
 
 Compare to the value of the *threshold* parameter (transformed) for reference: They are not identical. Prefer the turning point estimate above.
@@ -550,6 +563,8 @@ for ( i  in 1:N ) curve (
 
 ### Contrast psychometric model
 
+State the model and priors.
+
 ```{r}
 con.psych.formula <- bf(success ~ 
                       base + 
@@ -562,12 +577,33 @@ con.psych.priors  <- c(
          prior(beta(15,15),      nlpar = "lapse"             ,lb=0,ub= 0.74      ), 
          prior(gamma(2,3),         nlpar= 'threshold',  class = 'b'   ),
 	       prior(gamma(2,3),         nlpar = 'width',     class = 'b'     ))
+```
 
+
+Run an *Empty* model without main predictor:
+
+```{r}
+con.empty.formula <- bf(success ~ 
+                      base + 
+                      (1 - base - lapse) * 
+                      inv_logit(4.39*(	1 - (threshold)	)	/
+                      (  (width) ) ),
+  base ~ 1, lapse ~ 1, threshold ~ 1, width ~ 1, nl = TRUE)
+
+con.empty.fit  <- brm(con.empty.formula, data = con, family = bernoulli("identity"), iter = 5000,
+              chains = 4, prior = con.psych.priors, control = list(adapt_delta=0.99999))
+
+con.empty.fit <- add_criterion(con.empty.fit, c("loo","waic")) 
+```
+
+Run the main model.
+
+```{r}
 con.psycho.fit  <- brm(con.psych.formula, data = con, 
                   family = bernoulli("identity"), iter = 2500,
                   chains = 4, prior = con.psych.priors, 
                   control = list(max_treedepth = 12,
-                                 adapt_delta=0.9999)) 
+                                 adapt_delta=0.99999)) 
 
 con.psycho.fit  <- add_criterion(con.psycho.fit, c("loo","waic")) 
 ```
@@ -640,25 +676,6 @@ mcmc_plot(con.psycho.fit, pars=c("b_threshold_Intercept"), type="areas",
 ggplot(data=circ_fun_con ,aes(x=contrast , y=sext.prop, size=n_obs)) +
 geom_point() + theme_classic() + scale_size_area(max_size = 4) + theme(legend.position="none") + ylim(0,0.7) +
   ylab("Proportion orented towards target sector") + xlab("Stimulus arc width")
-```
-
-
-```{r}
-con.empty.formula <- bf(success ~ 
-                      base + 
-                      (1 - base - inv_logit(lapse)) * 
-                      inv_logit(4.39*(	1 - (threshold)	)	/
-                      (  (width) ) ),
-  base      ~ 1, #+ #(1|individual), # guess rate has a single value
-	lapse     ~ 1, #+ #(1|individual), # lapse rate can be different for different chicks
-	threshold ~ 1, #+ #(1|individual), # threshold changes with all effects
-	width     ~ 1, #+ #(1|individual), # threshold-width changes with all effects
-                      nl = TRUE)
-
-con.empty.fit  <- brm(con.empty.formula, data = con, family = bernoulli("identity"), iter = 5000,
-              chains = 4, prior = con.psych.priors, control = list(adapt_delta=0.9999))
-
-con.empty.fit <- add_criterion(con.empty.fit, c("loo","waic")) 
 ```
 
 
