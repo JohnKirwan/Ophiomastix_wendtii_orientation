@@ -370,7 +370,7 @@ geom_point() + theme_classic() + scale_size_area(max_size = 4) + theme(legend.po
 ```{r}
 N = 70*3*5
 vals <- array(dim=c(5000,N))
-turn.idx <- vector(length = length(res.smpl[,1]))
+turn.idx <- vector(length = length(res.psych.smpl[,1]))
 x <- seq(from=0,to=3,length.out = N)
 newdat <- data.frame(T = T)
 
@@ -378,12 +378,12 @@ plot( NULL, xlim = c(0,3), ylim = c(0.1,.7) ,
       xlab = "Scaled stimulus strength", ylab = "Proportion correct response" )
 abline (h=1/6, lty=2)
 i = 1
-for ( i  in 1:length(res.smpl[,1])){
+for ( i  in 1:length(res.psych.smpl[,1])){
 
-  vals[i,] <- res.smpl$b_base_Intercept[i] + 
-          (1 - res.smpl$b_base_Intercept[i] - res.smpl$b_lapse_Intercept[i]) * 
-          plogis(4.39*(	x - res.smpl$b_threshold_Intercept[i]	)	/ 
-                    (res.smpl$b_width_Intercept[i]) )
+  vals[i,] <- res.psych.smpl$b_base_Intercept[i] + 
+          (1 - res.psych.smpl$b_base_Intercept[i] - res.psych.smpl$b_lapse_Intercept[i]) * 
+          plogis(4.39*(	x - res.psych.smpl$b_threshold_Intercept[i]	)	/ 
+                    (res.psych.smpl$b_width_Intercept[i]) )
   lines(x,vals[i,],col = col.alpha("black",0.02))
   
   #infl[i] <- c(FALSE, diff(diff(vals[i,])>0)!=0)
@@ -415,7 +415,7 @@ round(HPDI(turning.pts,prob=.95),0)
 Compare to the value of the *threshold* parameter (transformed) for reference: They are not identical. Prefer the turning point estimate above.
 
 ```{r}
-HPDI(exp(res.smpl$b_threshold_Intercept)*max(res$target))
+HPDI(exp(res.psych.smpl$b_threshold_Intercept)*max(res$target))
 ```
 
 ### Categorical model
