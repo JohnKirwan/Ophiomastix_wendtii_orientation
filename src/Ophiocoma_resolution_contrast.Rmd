@@ -216,20 +216,19 @@ set.seed(196)
 N          <- 1000
 base       <- rnorm(N,0.167,0.05)  # Base is close to random probability 
 lapse      <- rbeta(N,15,15)       # Lapse is wide range - should not overlap base rate
-#lapse      <- runif(N,0,.75)
 threshold  <- rgamma(N,2,2)    # Threshold must be > 0 and can be > 1.
 width      <- rgamma(N,2,2)    # Width must be > 0 and can be > 1.
                                    # Varying intercept lapse
                                    # Varying intercepts base
 
-plot( NULL, xlim = c(-.5,2.5), ylim = c(0.1,0.8) , 
+plot( NULL, xlim = c(-.5,3.5), ylim = c(0.1,0.8) , 
       xlab = "Scaled stimulus strength", ylab = "Proportion correct response" )
 abline (h=1/6, lty=2)
 for ( i  in 1:N ) curve (
         base[i] + 
           (1 - base[i] - lapse[i]) * 
           plogis(4.39*(	x - threshold[i]	)	/ ( (width[i]) ) ),
-   from=-.5, to = 2.5, add = TRUE, col = col.alpha("black",0.1))
+   from=-.5, to = 3.5, add = TRUE, col = col.alpha("black",0.1))
 
 ```
 
@@ -283,8 +282,9 @@ res.psych.fit  <- brm(res.psych.formula, data = res,
 res.psych.fit  <- add_criterion(res.psych.fit, c("loo","waic")) 
 ```
 
+
 ```{r}
-conditional_effects(res.psych.fit)
+conditional_effects(res.psych.fit, spaghetti=T, nsamples = 1000)
 ```
 
 
@@ -318,7 +318,7 @@ posterior_summary(res.psych.fit,
                   probs = c(0.025,  0.975), robust = TRUE)
 ```
 
-Plot the threshold and width tranformed.
+Plot the threshold and width transformed.
 
 ```{r}
 param_trans <- function(x){
@@ -327,7 +327,8 @@ param_trans <- function(x){
 mcmc_areas(res.psych.fit, pars=c("b_threshold_Intercept","b_width_Intercept"),   
          point_est = "median", prob = 0.8, prob_outer = 0.95,
          transformations = param_trans) +
-         ggplot2::labs(title = "Posterior distributions", subtitle = "with medians and 80% intervals")
+         ggplot2::labs(title = "Posterior distributions", 
+                       subtitle = "with medians and 80% intervals")
 ```
 
 ### Confidence intervals of the threshold parameter.
@@ -343,6 +344,10 @@ HPDI (highest posterior density) is an alternative confidence interval which is 
 
 ```{r}
 round(HPDI(threshold_smpl,prob=.95),0)
+```
+
+```{r}
+round(HPDI(threshold_smpl,prob=.5),0)
 ```
 
 ### Graphical Posterior predictive checks
@@ -363,6 +368,12 @@ Back to the main psychometric model. We check if the posterior predictions are i
 ggplot(data=circ_fun_res ,aes(x=T , y=sext.prop, size=n_obs)) +
 geom_point() + theme_classic() + scale_size_area(max_size = 4) + theme(legend.position="none") + ylim(0,0.7) +
   ylab("Proportion orented towards target sector") + xlab("Stimulus arc width")
+```
+
+### Bayes R-squared
+
+```{r}
+bayes_R2(res.psych.fit)
 ```
 
 ### Plot each line from the draws and find the inflection point of each
@@ -402,15 +413,24 @@ turning.pts <- turn.idx/5
 hist(turning.pts,breaks = 100)
 ```
 
-Below, are two confidence intervals for the turning point.
+Below, are two confidence intervals for the turning point. The first works best with symmetrical distributions.
 
 ```{r}
 round(PI(turning.pts,prob=.95),0)
 ```
 
+We prefer HPDI because the distribution is not symmetrical.
+
 ```{r}
 round(HPDI(turning.pts,prob=.95),0)
 ```
+
+50% credibility interval 
+
+```{r}
+round(HPDI(turning.pts,prob=.5),0)
+```
+
 
 Compare to the value of the *threshold* parameter (transformed) for reference: They are not identical. Prefer the turning point estimate above.
 

@@ -1,7 +1,11 @@
 .Rproj.user/
-.Rhistory
 .RData
 .Ruserdata
 .Rhistory
 *.pper
 .Proj*
+*.Rproj.user
+*.pper
+data/Reflectance_measurements/Relectance_2017_material/80/untitled.eps
+data/Reflectance_measurements/Relectance_2017_material/80/untitled.fig
+*.pper
