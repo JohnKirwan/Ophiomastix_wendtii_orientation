@@ -282,9 +282,29 @@ res.psych.fit  <- brm(res.psych.formula, data = res,
 res.psych.fit  <- add_criterion(res.psych.fit, c("loo","waic")) 
 ```
 
+```{r}
+res.psych.cond <- conditional_effects(res.psych.fit, spaghetti=T, 
+                                      nsamples = 1000, summary=FALSE) 
+```
 
 ```{r}
-conditional_effects(res.psych.fit, spaghetti=T, nsamples = 1000)
+res %>% group_by(T) %>%
+  summarise(p = sum(success)/length(success)) -> props 
+props %>%
+  ggplot(aes(x=T,y=p,size=p)) + geom_point() + theme_classic()
+```
+
+
+
+```{r}
+conditional_effects(res.psych.fit, spaghetti=T, nsamples = 1000, summary=FALSE) %>% 
+  plot(points=TRUE, point_args = c(data=props,x=T,y=p), mean=TRUE)
+```
+
+
+
+```{r}
+conditional_effects(res.psych.fit, spaghetti=T, nsamples = 1000,robust=TRUE)
 ```
 
 
