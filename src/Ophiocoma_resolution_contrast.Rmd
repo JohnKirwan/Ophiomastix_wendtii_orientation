@@ -24,8 +24,8 @@ library('ggplot2')
 library('reshape2')
 library('circular')
 library('bayesplot')
-rstan::rstan_options(auto_write = TRUE)
 library('rethinking')
+rstan::rstan_options(auto_write = TRUE)
 library('brms')
 ```
 
@@ -213,7 +213,7 @@ From previous data, we know the response rate of this species to a salient stimu
 
 ```{r}
 set.seed(196)
-N          <- 1000
+N          <- 100
 base       <- rnorm(N,0.167,0.05)  # Base is close to random probability 
 lapse      <- rbeta(N,15,15)       # Lapse is wide range - should not overlap base rate
 threshold  <- rgamma(N,2,2)    # Threshold must be > 0 and can be > 1.
@@ -252,10 +252,10 @@ res.psych.priors  <- c(
          prior(gamma(2,2),         nlpar= 'threshold',  class = 'b'   ),
 	       prior(gamma(2,2),         nlpar = 'width',     class = 'b'     ))
 
-res.empty.fit  <- brm(res.empty.formula, data = res, family = bernoulli("identity"), iter = 5000,
+res_empty_fit  <- brm(res.empty.formula, data = res, family = bernoulli("identity"), iter = 5000,
               chains = 4, prior = res.psych.priors, control = list(adapt_delta=0.99999)) 
 
-res.empty.fit <- add_criterion(res.empty.fit, c("loo","waic")) 
+res_empty_fit <- add_criterion(res_empty_fit, c("loo","waic")) 
 ```
 
 ## Main model
@@ -273,19 +273,15 @@ res.psych.priors  <- c(
          prior(gamma(2,2),           nlpar= 'threshold',  class = 'b'   ),
 	       prior(gamma(2,2),           nlpar = 'width',     class = 'b'     ))
 
-res.psych.fit  <- brm(res.psych.formula, data = res, 
+res_psych_fit  <- brm(res.psych.formula, data = res, 
                   family = bernoulli("identity"), iter = 2500,
                   chains = 4, prior = res.psych.priors, 
                   control = list(max_treedepth = 12,
                                  adapt_delta=0.9999999)) 
 
-res.psych.fit  <- add_criterion(res.psych.fit, c("loo","waic")) 
+res_psych_fit  <- add_criterion(res_psych_fit, c("loo","waic")) 
 ```
 
-```{r}
-res.psych.cond <- conditional_effects(res.psych.fit, spaghetti=T, 
-                                      nsamples = 1000, summary=FALSE) 
-```
 
 ```{r}
 res %>% group_by(T) %>%
@@ -294,46 +290,37 @@ props %>%
   ggplot(aes(x=T,y=p,size=p)) + geom_point() + theme_classic()
 ```
 
-
-
 ```{r}
-conditional_effects(res.psych.fit, spaghetti=T, nsamples = 1000, summary=FALSE) %>% 
-  plot(points=TRUE, point_args = c(data=props,x=T,y=p), mean=TRUE)
-```
-
-
-
-```{r}
-conditional_effects(res.psych.fit, spaghetti=T, nsamples = 1000,robust=TRUE)
+conditional_effects(res_psych_fit, spaghetti=T, nsamples = 1000,robust=TRUE)
 ```
 
 
 According to the checks below (rhat and ESS) the model fit fine.
 
 ```{r}
-summary(res.psych.fit)
+summary(res_psych_fit)
 ```
 
 The parameters are unimodal and the chains converged, resembling *hairy catterpillars.* Lapse is skewed, on account of the constraint imposed and because low values are perfectly plausible.
 
 ```{r}
-plot(res.psych.fit)
+plot(res_psych_fit)
 ```
 
 
 ```{r}
-loo_compare(res.psych.fit,res.empty.fit)
+loo_compare(res_psych_fit,res_empty_fit)
 ```
 
 
 
 ```{r Extract the samples}
-res.psych.smpl <- posterior_samples(res.psych.fit)
+res.psych.smpl <- posterior_samples(res_psych_fit)
 ```
 
 
 ```{r}
-posterior_summary(res.psych.fit, 
+posterior_summary(res_psych_fit, 
                   pars=c("b_base_Intercept", "b_lapse_Intercept", "b_threshold_Intercept","b_width_Intercept"),
                   probs = c(0.025,  0.975), robust = TRUE)
 ```
@@ -344,7 +331,7 @@ Plot the threshold and width transformed.
 param_trans <- function(x){
   out = x*max(res$target)
   return(out)}
-mcmc_areas(res.psych.fit, pars=c("b_threshold_Intercept","b_width_Intercept"),   
+mcmc_areas(res_psych_fit, pars=c("b_threshold_Intercept","b_width_Intercept"),   
          point_est = "median", prob = 0.8, prob_outer = 0.95,
          transformations = param_trans) +
          ggplot2::labs(title = "Posterior distributions", 
@@ -375,12 +362,12 @@ round(HPDI(threshold_smpl,prob=.5),0)
 Back to the main psychometric model. We check if the posterior predictions are in line with the original counts, which is so.  
 
 ```{r}
-  pp_check(res.psych.fit,nsamples=400, type="bars",) + theme_classic() + theme(legend.position='none') 
+  pp_check(res_psych_fit,nsamples=400, type="bars",) + theme_classic() + theme(legend.position='none') 
 ```
 
 
 ```{r}
-  pp_check(res.psych.fit, type = "rootogram", nsamples = 100, style = "standing", prob=0.9) +   theme_classic()  
+  pp_check(res_psych_fit, type = "rootogram", nsamples = 100, style = "standing", prob=0.9) +   theme_classic()  
 ```
 
 
@@ -393,7 +380,7 @@ geom_point() + theme_classic() + scale_size_area(max_size = 4) + theme(legend.po
 ### Bayes R-squared
 
 ```{r}
-bayes_R2(res.psych.fit)
+bayes_R2(res_psych_fit)
 ```
 
 ### Plot each line from the draws and find the inflection point of each
