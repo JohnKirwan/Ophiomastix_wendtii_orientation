@@ -291,20 +291,21 @@ res.psych.cond <- conditional_effects(res.psych.fit, spaghetti=T,
 res %>% group_by(T) %>%
   summarise(p = sum(success)/length(success)) -> props 
 props %>%
-  ggplot(aes(x=T,y=p,size=p)) + geom_point() + theme_classic()
+  ggplot(aes(x=T,y=p,size=p)) + geom_point() + theme_classic() + geom_hline(yintercept = 1/6)
 ```
 
 
 
 ```{r}
 conditional_effects(res.psych.fit, spaghetti=T, nsamples = 1000, summary=FALSE) %>% 
-  plot(points=TRUE, point_args = c(data=props,x=T,y=p), mean=TRUE)
+  plot(mean=TRUE)
 ```
 
 
 
 ```{r}
-conditional_effects(res.psych.fit, spaghetti=T, nsamples = 1000,robust=TRUE)
+conditional_effects(res.psych.fit, spaghetti=FALSE, nsamples = 1000,
+                    robust=TRUE,probs=c(0.25, 0.75) )
 ```
 
 
