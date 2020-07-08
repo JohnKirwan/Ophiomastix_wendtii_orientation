@@ -213,7 +213,7 @@ From previous data, we know the response rate of this species to a salient stimu
 
 ```{r}
 set.seed(196)
-N          <- 1000
+N          <- 5000
 base       <- rnorm(N,0.167,0.05)  # Base is close to random probability 
 lapse      <- rbeta(N,15,15)       # Lapse is wide range - should not overlap base rate
 threshold  <- rgamma(N,2,2)    # Threshold must be > 0 and can be > 1.
@@ -228,7 +228,7 @@ for ( i  in 1:N ) curve (
         base[i] + 
           (1 - base[i] - lapse[i]) * 
           plogis(4.39*(	x - threshold[i]	)	/ ( (width[i]) ) ),
-   from=-.5, to = 3.5, add = TRUE, col = col.alpha("black",0.1))
+   from=-.5, to = 3.5, add = TRUE, col = col.alpha("pink",0.05))
 
 ```
 
