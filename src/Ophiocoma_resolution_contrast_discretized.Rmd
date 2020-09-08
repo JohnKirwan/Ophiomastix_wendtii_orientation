@@ -7,8 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-options(mc.cores = parallel::detectCores())  # run all cores
-Sys.setenv(LOCAL_CPPFLAGS = '-march=native') # for faster Stan execution
+options(mc.cores = parallel::detectCores())
 ```
 
 Load necessary packages.
@@ -128,7 +127,7 @@ for(i in 1:length(res$H)){           ### get tote of each using one fifth of the
 
 Make dataframe for the contrast experiment and the resolution experiment. Each include the 0$&deg;$ negative control with no stimulus.
 
-### Plot the headings
+### Plot the headings on circular plots
 
 Below, we make circular plots of the vectors for each of the treatments. Code borrowed and modified from James J. Foster (University of Würzburg).
 
@@ -197,17 +196,16 @@ circ_fun_res %>%
    ylim(0.1,0.55)
 ```
 
-### Try with new formulation
 
-We tried a fair few versions of the model. We settled on this version because it includes both upper and lower asymptotes and was able to converge. 4.39 approximates 2 x ln(1 - 1 / alpha), which scales the width parameter. Here alpha = 0.1, 10%, which scales width so that threshold ± width/2 includes the x axis region in which the curve rises from 10% of its maximum height above guess rate to 90% of its maximum height above guess rate.
+In the model formulation, 4.39 approximates 2 x ln(1 - 1 / alpha), which scales the width parameter. Here alpha = 0.1, 10%, which scales width so that threshold ± width/2 includes the x axis region in which the curve rises from 10% of its maximum height above guess rate to 90% of its maximum height above guess rate.
 
-The following non-default priors were given to brms. An informative prior was used for the lower asymptote (base) as this value should not differ much from 0.2. Upper and lower bounds were used for the aysmptotes to prevent overlap, which would make the model unidentifiable.
+The following non-default priors were given to brms. An informative prior was used for the lower asymptote (base) as this value should not differ much from 0.167. Upper and lower bounds were used for the aysmptotes to prevent overlap, which would make the model unidentifiable.
 
 This is the (exponentiated) prior applied to width of the psychometric curve between 10% and 90% of its maximum height and the model threshold.
 
-### Prior Predictive Distribution for Resolution
+### Prior predictive plot used for psychometric modelling of threshold stimulus width
 
-Below, we plot the possible range of values deemed by the priors and where predictions are distributed. A stimulus with the maximal target used (70 degrees) is already extremmely wide. We know the base should be at 0.167 by random chance - so we put the location of the base parameter prior at this value, but allow it to vary around this point. Constraints are placed on base and lapse to prevent them overlappping. Priors on threshold and width keep these parameters within the possible range of angles. The inverse logit (logistic) function is *plogis* in base.
+Below, we plot the possible range of values deemed by the priors and where predictions are distributed. A stimulus with the maximal target used (70 degrees) is already extremely wide. We know the base should be at 0.167 by random chance - so we put the location of the base parameter prior at this value, but allow it to vary around this point. Constraints are placed on base and lapse to prevent them overlappping. Priors on threshold and width keep these parameters within the possible range of angles. The inverse logit (logistic) function is *plogis* in base.
 
 From previous data, we know the response rate of this species to a salient stimulus is within the range 0.3 to 0.8.
 
@@ -231,6 +229,7 @@ for ( i  in 1:N ) curve (
    from=-.5, to = 3.5, add = TRUE, col = col.alpha("pink",0.05))
 
 ```
+
 
 ### *Empty* model without predictor
 
@@ -295,7 +294,7 @@ conditional_effects(res_psych_fit, spaghetti=T, nsamples = 1000,robust=TRUE)
 ```
 
 
-According to the checks below (rhat and ESS) the model fit fine.
+According to the checks below (Rhat and ESS) the model fit fine.
 
 ```{r}
 summary(res_psych_fit)
@@ -311,7 +310,6 @@ plot(res_psych_fit)
 ```{r}
 loo_compare(res_psych_fit,res_empty_fit)
 ```
-
 
 
 ```{r Extract the samples}
@@ -347,11 +345,13 @@ threshold_smpl <- (res.psych.smpl$b_threshold_Intercept)*max(res$target)
 round(PI(threshold_smpl,prob=.95),0)
 ```
 
-HPDI (highest posterior density) is an alternative confidence interval which is especially useful is the distribution is skewed.
+HPDI (highest posterior density) is an alternative credible interval which is especially useful is the distribution is skewed. AT the 95% level, this is:
 
 ```{r}
 round(HPDI(threshold_smpl,prob=.95),0)
 ```
+
+Below is the 50% HPDI interval.
 
 ```{r}
 round(HPDI(threshold_smpl,prob=.5),0)
@@ -365,22 +365,18 @@ Back to the main psychometric model. We check if the posterior predictions are i
   pp_check(res_psych_fit,nsamples=400, type="bars",) + theme_classic() + theme(legend.position='none')
 ```
 
+The plot below is of the rootogram type.
 
 ```{r}
   pp_check(res_psych_fit, type = "rootogram", nsamples = 100, style = "standing", prob=0.9) +   theme_classic()
 ```
 
+The plots above show that the posteriors are in line with the original data.
 
 ```{r}
 ggplot(data=circ_fun_res ,aes(x=T , y=sext.prop, size=n_obs)) +
 geom_point() + theme_classic() + scale_size_area(max_size = 4) + theme(legend.position="none") + ylim(0,0.7) +
   ylab("Proportion orented towards target sector") + xlab("Stimulus arc width")
-```
-
-### Bayes R-squared
-
-```{r}
-bayes_R2(res_psych_fit)
 ```
 
 ### Plot each line from the draws and find the inflection point of each
@@ -445,33 +441,6 @@ Compare to the value of the *threshold* parameter (transformed) for reference: T
 HPDI(exp(res.psych.smpl$b_threshold_Intercept)*max(res$target))
 ```
 
-### Categorical model
-
-For completeness, we can include a model with a categorical predictor.
-
-```{r}
-res$Tc <- as.factor(res$target)
-res.cat <- bf(success ~ Tc, family = bernoulli(link="logit"))
-
-res.cat.prior  <- c(
-         prior(normal(0,1),   class = "Intercept"),
-	       prior(normal(0,1),   class = 'b'     )
-                   )
-
-res.cat.fit  <- brm(res.cat, data = res,
-                  family = bernoulli("logit"), iter = 2000,
-                  chains = 4, prior = res.cat.prior)
-
-res.cat.fit  <- add_criterion(res.cat.fit, c("loo","waic"))
-```
-
-
-```{r}
-conditional_effects(res.cat.fit)
-```
-
-
-
 # Contrast
 
 Four different levels of Michelson contrast were applied: the grey negative control and three levels of contrast of the 60 degree stimulus (0.05, 0.1, and 1).
@@ -492,9 +461,7 @@ for(i in 1:length(con$H)){           ### get tote of each using one fifth of the
   else{    con$success[i] <- 1}  }
 ```
 
-
-Make dataframe for the contrast experiment and the resolution experiment. Each include the 0$&deg;$ negative control with no stimulus.
-
+Make data frame for the contrast experiment and the resolution experiment. Each include the 0 degree negative control with no stimulus.
 
 ## Plot of Contrast levels
 
@@ -562,156 +529,6 @@ circ_fun_con %>%
 ```
 
 
-## Prior Predictive Distribution for contrast
-
-The inverse logit (logistic) function is *plogis* in base.
-
-```{r}
-set.seed(196)
-N          <- 1000
-base       <- rnorm(N,0.167,0.05)  # Base is close to random probability
-lapse      <- rbeta(N,15,15)       # Lapse is wide range - should not overlap base rate
-threshold  <- rgamma(N,2,3)    # Threshold must be > 0 and can be > 1.
-width      <- rgamma(N,2,3)    # Width must be > 0 and can be > 1.
-                                   # Varying intercept lapse
-                                   # Varying intercepts base
-
-plot( NULL, xlim = c(-.5,1.5), ylim = c(0,1) ,
-      xlab = "Scaled stimulus strength", ylab = "Proportion correct response" )
-abline (h=1/6, lty=2)
-for ( i  in 1:N ) curve (
-        base[i] +
-          (1 - base[i] - lapse[i]) *
-          plogis(4.39*(	x - (threshold[i])	)	/ (  (width[i]) ) ),
-   from=-.5, to = 1.5, add = TRUE, col = col.alpha("black",0.1))
-
-```
-
-
-### Contrast psychometric model
-
-State the model and priors.
-
-```{r}
-con.psych.formula <- bf(success ~
-                      base +
-                      (1 - base - lapse) *
-                      inv_logit( 4.39*(	contrast - (threshold)	)	/  (width)  ),
-  base      ~ 1,	lapse     ~ 1, threshold ~ 1, width     ~ 1, nl = TRUE)
-
-con.psych.priors  <- c(
-         prior(normal(0.167,0.05),   nlpar = "base",        lb=0,ub= 0.25),
-         prior(beta(15,15),      nlpar = "lapse"             ,lb=0,ub= 0.74      ),
-         prior(gamma(2,3),         nlpar= 'threshold',  class = 'b'   ),
-	       prior(gamma(2,3),         nlpar = 'width',     class = 'b'     ))
-```
-
-
-Run an *Empty* model without main predictor:
-
-```{r}
-con.empty.formula <- bf(success ~
-                      base +
-                      (1 - base - lapse) *
-                      inv_logit(4.39*(	1 - (threshold)	)	/
-                      (  (width) ) ),
-  base ~ 1, lapse ~ 1, threshold ~ 1, width ~ 1, nl = TRUE)
-
-con.empty.fit  <- brm(con.empty.formula, data = con, family = bernoulli("identity"), iter = 5000,
-              chains = 4, prior = con.psych.priors, control = list(adapt_delta=0.99999))
-
-con.empty.fit <- add_criterion(con.empty.fit, c("loo","waic"))
-```
-
-Run the main model.
-
-```{r}
-con.psycho.fit  <- brm(con.psych.formula, data = con,
-                  family = bernoulli("identity"), iter = 2500,
-                  chains = 4, prior = con.psych.priors,
-                  control = list(max_treedepth = 12,
-                                 adapt_delta=0.99999))
-
-con.psycho.fit  <- add_criterion(con.psycho.fit, c("loo","waic"))
-```
-
-
-```{r}
-summary(con.psycho.fit)
-```
-
-```{r}
-conditional_effects(con.psycho.fit)
-```
-
-
-```{r Plot the draws}
-con.smpl <- posterior_samples(con.psycho.fit)
-smpl <- mutate(as.data.frame(con.smpl), index = 1:length(lp__))
-ggplot(melt(
-    dplyr::select(smpl,- starts_with("r_")),
-    id.var = "index"), aes(x=index, y=value)) + geom_point(alpha = 0.2, colour = "blue") +
-    facet_wrap(~variable, scale = "free_y") + theme_classic()
-```
-
-
-```{r}
-post_sum <- posterior_summary(con.psycho.fit,
-                  pars=c(
-                    "b_base_Intercept", "b_lapse_Intercept", "b_threshold_Intercept","b_width_Intercept",
-                         "sd_individual__lapse_Intercept","sd_individual__threshold_Intercept","sd_individual__width_Intercept"),
-                         probs = c(0.025,  0.975), robust = TRUE)
-```
-
-
-Trace and density plots for MCMC samples.
-
-```{r Trace and Density Plots for MCMC samples}
-plot(con.psycho.fit)#, N= 7)
-```
-
-Plot the threshold and width tranformed into degrees in radians.
-
-```{r}
-mcmc_plot(con.psycho.fit, pars=c("b_width_Intercept","b_threshold_Intercept"), type="areas",
-         point_est = "median", prob = 0.8, prob_outer = 0.95,
-         transformations = exp) +
-         ggplot2::labs(title = "Posterior distributions", subtitle = "with medians and 80% intervals")
-```
-
-Just the threshold
-
-```{r}
-mcmc_plot(con.psycho.fit, pars=c("b_threshold_Intercept"), type="areas",
-         point_est = "median", prob = 0.8, prob_outer = 0.95,
-         transformations = exp) +
-         ggplot2::labs(title = "Posterior distributions", subtitle = "with medians and 95% intervals")
-```
-
-
-```{r}
-  pp_check(con.psycho.fit,nsamples=400, type="bars",) + theme_classic() + theme(legend.position='none')
-```
-
-
-```{r}
-  pp_check(con.psycho.fit, type = "rootogram", nsamples = 100, style = "standing", prob=0.9) +   theme_classic()
-```
-
-
-```{r}
-ggplot(data=circ_fun_con ,aes(x=contrast , y=sext.prop, size=n_obs)) +
-geom_point() + theme_classic() + scale_size_area(max_size = 4) + theme(legend.position="none") + ylim(0,0.7) +
-  ylab("Proportion orented towards target sector") + xlab("Stimulus arc width")
-```
-
-
-```{r}
-loo_compare(con.psycho.fit,con.empty.fit)
-```
-
-The psychometric model could not find estimate the threshold of contrast of a 60 degree target in reasonable bounds (i.e. below a contrast of 1).
-
 ### Contrast Categorical variable
 
 We can get an idea of the contrast sensitivity by treating contrast as a categorical variable.
@@ -735,7 +552,7 @@ con.cat.fit  <- brm(con.cat.fit, data = con,
 conditional_effects(con.cat.fit,robust = T)
 ```
 
-The estimate of the control (0) without contrast has its median at random and greater levels increase montonically. The estimates of the different levels of contrast overlap extensively but the estimate at the highest level of Michelson contrast (1) is likely greater than random.
+The estimate of the control (0) without contrast has its median at random and greater levels increase monotonically. The estimates of the different levels of contrast overlap extensively but the estimate at the highest level of Michelson contrast (1) is likely greater than random.
 
 ```{r}
 con.cat.smpl <- posterior_samples(con.cat.fit)
