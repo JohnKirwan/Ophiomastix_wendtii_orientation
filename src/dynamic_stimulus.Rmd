@@ -1,0 +1,65 @@
+---
+title: "DynamicStim"
+author: "Sumner-Rooney et al."
+date: "3/16/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r include=FALSE}
+library('tidyverse')
+library('brms')
+```
+
+Add the data set.
+
+
+```{r}
+dyno <- read_delim('DynamicStim.txt',delim = "\t",
+                   col_types = "ffflllllnc")
+dyno
+```
+
+
+
+
+
+```{r}
+d <- gather(dyno, "Viewer","Response", Viewer_1:Viewer_5)
+```
+
+
+
+
+```{r}
+m1 <- brm(Response ~ Stimulus + (1|Animal) + (1|Viewer),
+          family = bernoulli(),
+          data = d)
+```
+
+
+
+
+```{r}
+conditional_effects(m1)
+```
+
+```{r}
+hyps <- c("StimulusL - Intercept = 0","StimulusO - Intercept = 0")
+
+hyp <- hypothesis(m1,hyps)
+hyp
+```
+
+
+```{r}
+plot(hyp, ignore_prior = TRUE)
+```
+
+
+
