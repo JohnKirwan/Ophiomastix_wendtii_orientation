@@ -18,41 +18,67 @@ library('brms')
 
 Add the data set.
 
-
 ```{r}
-dyno <- read_delim('DynamicStim.txt',delim = "\t",
+df_agg <- read_delim('DynamicStim.txt',delim = "\t",
                    col_types = "ffflllllnc")
-dyno
+
+df_agg %>% mutate(
+  UnanT = if_else(Unanimous == "Y" & Viewer_1 == TRUE, TRUE, FALSE)) -> df_agg
+
+head(df_agg)
 ```
 
+### Aggregated observations
 
+#### Skeleton model
 
-
-
-```{r}
-d <- gather(dyno, "Viewer","Response", Viewer_1:Viewer_5)
-```
-
-
-
+Run a model with only the random intercepts and no main effect.
 
 ```{r}
-m1 <- brm(Response ~ Stimulus + (1|Animal) + (1|Viewer),
-          family = bernoulli(),
-          data = d)
-```
+prior <- c(prior(exponential(1), class="sd") )
 
-
-
-
-```{r}
-conditional_effects(m1)
+m_agg_sk <- brm(UnanT ~ 1 + (1|Animal),
+          family = bernoulli(), refresh = 0,
+          prior = prior,
+          data = df_agg)
+m_agg_sk
 ```
 
 ```{r}
-hyps <- c("StimulusL - Intercept = 0","StimulusO - Intercept = 0")
+plot(m_agg_sk)
+```
 
-hyp <- hypothesis(m1,hyps)
+The data are mostly unsuccessful responses.
+
+#### Effect of stimulus and individual (with random intercept)
+
+
+```{r}
+prior <- c(prior(normal(0,2), class="b"),
+           prior(exponential(1), class="sd")
+           )
+
+m_agg <- brm(UnanT ~ Stimulus + (1|Animal),
+          family = bernoulli(), refresh = 0,
+          prior = prior,
+          data = df_agg)
+m_agg
+```
+
+```{r}
+plot(m_agg)
+```
+
+
+```{r}
+conditional_effects(m_agg)
+```
+
+
+```{r}
+hyps <- c("StimulusL - Intercept > 0","StimulusO - Intercept > 0")
+
+hyp <- hypothesis(m_agg,hyps)
 hyp
 ```
 
@@ -60,6 +86,151 @@ hyp
 ```{r}
 plot(hyp, ignore_prior = TRUE)
 ```
+
+
+### Separate observations
+
+```{r}
+df_agg %>% 
+  gather("Viewer","Response", Viewer_1:Viewer_5) %>%
+  select(-Unanimous,-Response_rate,-UnanT) -> df_sep
+
+head(df_sep)
+```
+
+#### Skeleton model
+
+```{r}
+prior <- c(prior(exponential(1), class="sd")    )
+
+m_sep_sk <- brm(Response ~ 1 + (1|Animal) + (1|Viewer),
+          family = bernoulli(), refresh = 0,
+          prior = prior,
+          data = df_sep)
+m_sep_sk
+```
+
+```{r}
+plot(m_sep_sk)
+```
+
+
+#### Main model
+
+```{r}
+prior <- c(prior(normal(0,2), class="b"),
+           prior(exponential(1), class="sd")
+          )
+
+m_sep <- brm(Response ~ Stimulus + (1|Animal) + (1|Viewer),
+          family = bernoulli(), refresh = 0,
+          prior = prior,
+          data = df_sep)
+m_sep
+```
+
+```{r}
+plot(m_sep)
+```
+
+
+
+
+```{r}
+conditional_effects(m_sep)
+```
+
+Both of the experimental stimuli exceed the control. But by how much?
+
+```{r}
+hyps <- c("StimulusL - Intercept > 0","StimulusO - Intercept > 0")
+
+hyp <- hypothesis(m_sep,hyps)
+hyp
+```
+
+
+```{r}
+plot(hyp, ignore_prior = TRUE)
+```
+
+
+Why does the separate viewer analysis differ from the aggregate? 
+
+```{r}
+df_sep %>% 
+  group_by(Viewer) %>%
+    summarise(proportion = sum(Response)) -> summation
+summation
+```
+
+Similar numbers. Why did the skeleton model of the aggregate m_agg_sk suggest the mean response was below 50% if most responses are successes? Try again without the random effect.
+
+```{r}
+m_agg_1p <- brm(UnanT ~ 1,
+          family = bernoulli(), refresh = 0,
+          data = df_agg)
+m_agg_1p
+```
+
+
+```{r}
+sum(df_agg$UnanT)/length(df_agg$UnanT)
+```
+Because there are fewer - the unanimous criterion is too strict for the amount of data. Ff it required only a majority of successful observations from the Viewers per trial, most would be successful.
+
+```{r}
+sum(df_agg$Response_rate > 0.5) / length(df_agg$Response_rate)
+```
+#### Majoritarian
+
+Let's run with that idea a minute
+
+```{r}
+df_agg %>%
+  mutate(maj = if_else(Response_rate > 0.5, TRUE, FALSE)) -> df_agg
+```
+
+
+
+
+```{r}
+prior <- c(prior(normal(0,2), class="b"),
+           prior(exponential(1), class="sd")
+           )
+
+m_agg_maj <- brm(maj ~ Stimulus + (1|Animal),
+          family = bernoulli(), refresh = 0,
+          prior = prior,
+          data = df_agg)
+m_agg_maj
+```
+
+```{r}
+plot(m_agg)
+```
+
+
+
+```{r}
+conditional_effects(m_agg_maj)
+```
+Well now, still responds a bit when its the negative control. 
+
+```{r}
+df_agg$Response_rate[df_agg$Stimulus=="C"]
+```
+And the effect is much weaker in this case. 
+
+```{r}
+hyps <- c("StimulusL - Intercept > 0","StimulusO - Intercept > 0")
+
+hyp <- hypothesis(m_agg_maj,hyps)
+hyp
+```
+
+It is better to avoid dichotomizing data, where possible. This is clear in this case, where dichotomizing the observations by some number of *Viewers* reduces the effect size. I would proceed with the non-aggregated model: *m_sep*.
+
 
 
 
